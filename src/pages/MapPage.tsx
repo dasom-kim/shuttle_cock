@@ -1,6 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef } from 'react';
+import { useAuth } from '../hooks/useAuth';
 import Toggle from '../components/Toggle';
 import FloatingMenu from '../components/FloatingMenu';
+import LoginModal from '../components/LoginModal';
 
 // 테스트용 임시 정류장 데이터
 const MOCK_STATIONS = [
@@ -27,13 +29,14 @@ const getMarkerIcon = (isActive: boolean) => {
     };
 };
 
-const MapPage: React.FC = () => {
+const MapPage = () => {
+    const { user } = useAuth();
+    const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+    const [isAddMode, setIsAddMode] = useState(false);
+    const [filter, setFilter] = useState({ go: true, leave: false });
+
     const mapRef = useRef<naver.maps.Map | null>(null);
     const markersRef = useRef<naver.maps.Marker[]>([]);
-
-    // 변경점: 객체 형태로 출근/퇴근 다중 선택 상태 관리 (기본값: 출근만 켜짐)
-    const [filter, setFilter] = useState({ go: true, leave: false });
-    const [isAddMode, setIsAddMode] = useState<boolean>(false);
 
     useEffect(() => {
         if (!window.naver) return;
@@ -141,7 +144,17 @@ const MapPage: React.FC = () => {
 
             <div id="map" style={{ width: '100%', height: '100%', cursor: isAddMode ? 'crosshair' : 'default' }}></div>
 
-            <FloatingMenu isAddMode={isAddMode} onToggleAddMode={() => setIsAddMode(!isAddMode)} />
+            {/* 플로팅 메뉴에 유저 상태 전달 */}
+            <FloatingMenu
+                user={user}
+                isAddMode={isAddMode}
+                onToggleAddMode={() => setIsAddMode(!isAddMode)}
+                onOpenLogin={() => setIsLoginModalOpen(true)}
+            />
+            <LoginModal
+                isOpen={isLoginModalOpen}
+                onClose={() => setIsLoginModalOpen(false)}
+            />
         </div>
     );
 };
