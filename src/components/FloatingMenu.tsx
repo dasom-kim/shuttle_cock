@@ -1,125 +1,170 @@
 import React, { useState } from 'react';
 import { type User } from 'firebase/auth'; // Vite 8/TS 최신 규칙 준수
-import { logout } from '../services/firebase';
+import {auth} from "../firebase.ts";
 
 interface FloatingMenuProps {
     user: User | null;         // 현재 로그인한 유저 정보
-    isAddMode: boolean;        // 정류장 추가 모드 여부
-    onToggleAddMode: () => void; // 추가 모드 토글 함수
-    onOpenLogin: () => void;   // 로그인 모달 열기 함수
+    isAddMode: boolean;
+    isRankingOpen: boolean;
+    isFavOpen: boolean;
+    onToggleAddMode: () => void;
+    onToggleRanking: () => void;
+    onToggleFav: () => void;
+    onOpenLogin: () => void;
 }
 
 const FloatingMenu: React.FC<FloatingMenuProps> = ({
-                                                       user,
-                                                       isAddMode,
-                                                       onToggleAddMode,
-                                                       onOpenLogin
+                                                       user, isAddMode, isRankingOpen, isFavOpen,
+                                                       onToggleAddMode, onToggleRanking, onToggleFav, onOpenLogin
                                                    }) => {
     const [isOpen, setIsOpen] = useState(false);
-
-    // 공통 버튼 스타일 (시그니처 컬러 #8B5CF6 반영)
-    const menuButtonStyle: React.CSSProperties = {
-        padding: '12px 20px',
-        borderRadius: '25px',
-        border: 'none',
-        boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
-        cursor: 'pointer',
-        fontWeight: 'bold',
-        fontSize: '14px',
-        display: 'flex',
-        alignItems: 'center',
-        gap: '8px',
-        transition: 'all 0.2s ease',
-        whiteSpace: 'nowrap'
+    const handleLogout = () => {
+        if (window.confirm("로그아웃 하시겠습니까?")) {
+            auth.signOut();
+            setIsOpen(false);
+        }
     };
+    const toggleMenu = () => setIsOpen(!isOpen);
+    // ✨ 현재 어떤 모드가 활성화되어 있는지 확인하는 로직
+    const getActiveMode = () => {
+        if (isAddMode) return { icon: '📍', label: '추가 중', color: '#8B5CF6', bgColor: '#EEF2FF', toggle: onToggleAddMode };
+        if (isRankingOpen) return { icon: '🏆', label: '랭킹 중', color: '#F59E0B', bgColor: '#FEF3C7', toggle: onToggleRanking };
+        if (isFavOpen) return { icon: '⭐', label: '관심 중', color: '#0284C7', bgColor: '#E0F2FE', toggle: onToggleFav };
+        return null;
+    };
+    const activeMode = getActiveMode();
 
     return (
-        <div style={{
-            position: 'absolute', bottom: '40px', right: '20px', zIndex: 100,
-            display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '12px'
-        }}>
-
-            {/* 햄버거 메뉴가 열렸을 때 나타나는 서브 버튼들 */}
+        <div style={containerStyle}>
+            {/* 1. 메뉴 리스트 */}
             {isOpen && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', alignItems: 'flex-end' }}>
-
-                    {/* 1. 정류장 추가 (로그인 여부와 상관없이 모드 진입 가능) */}
+                <div style={menuListStyle}>
+                    {/* ✨ 로그인 여부에 따라 버튼 분기 처리 */}
+                    {user ? (
+                        <button onClick={handleLogout} style={menuItemStyle}>🔓 로그아웃</button>
+                    ) : (
+                        <button onClick={() => { onOpenLogin(); setIsOpen(false); }} style={{ ...menuItemStyle, color: '#8B5CF6' }}>🔑 로그인</button>
+                    )}
                     <button
-                        onClick={() => {
-                            onToggleAddMode();
-                            setIsOpen(false);
-                        }}
-                        style={{
-                            ...menuButtonStyle,
-                            backgroundColor: isAddMode ? '#ff4757' : 'white',
-                            color: isAddMode ? 'white' : '#333'
-                        }}
+                        onClick={() => { onToggleRanking(); setIsOpen(false); }}
+                        style={{ ...menuItemStyle, color: isRankingOpen ? '#8B5CF6' : '#4B5563' }}
                     >
-                        <span>📍</span> {isAddMode ? '추가 취소' : '정류장 추가'}
+                        🏆 랭킹
                     </button>
 
-                    {/* 2. 유저 상태에 따른 분기 로직 */}
-                    {user ? (
-                        /* [로그인 된 상태] */
-                        <>
-                            <button
-                                onClick={() => alert('즐겨찾기 목록을 불러옵니다!')}
-                                style={{ ...menuButtonStyle, backgroundColor: '#8B5CF6', color: 'white' }}
-                            >
-                                <span>⭐</span> 내 즐겨찾기
-                            </button>
-                            <button
-                                onClick={() => {
-                                    logout();
-                                    setIsOpen(false);
-                                }}
-                                style={{ ...menuButtonStyle, backgroundColor: 'white', color: '#666' }}
-                            >
-                                <span>🚪</span> 로그아웃
-                            </button>
-                        </>
-                    ) : (
-                        /* [로그인 안 된 상태] */
-                        <button
-                            onClick={() => {
+                    <button
+                        onClick={() => { onToggleFav(); setIsOpen(false); }}
+                        style={{ ...menuItemStyle, color: isFavOpen ? '#8B5CF6' : '#4B5563' }}
+                    >
+                        ⭐ 즐겨찾기
+                    </button>
+
+                    <button
+                        onClick={() => {
+                            // 로그인 유저만 추가 모드 진입 가능하게 할 경우
+                            if (!user) {
+                                alert("로그인이 필요한 서비스입니다.");
                                 onOpenLogin();
-                                setIsOpen(false);
-                            }}
-                            style={{ ...menuButtonStyle, backgroundColor: 'white', color: '#333' }}
-                        >
-                            <span>🔑</span> 로그인
-                        </button>
-                    )}
+                            } else {
+                                onToggleAddMode();
+                            }
+                            setIsOpen(false);
+                        }}
+                        style={{ ...menuItemStyle, color: isAddMode ? '#8B5CF6' : '#4B5563' }}
+                    >
+                        ➕ 정류장 추가
+                    </button>
                 </div>
             )}
 
-            {/* 메인 플로팅 메뉴 버튼 (햄버거 <-> X) */}
-            <button
-                onClick={() => setIsOpen(!isOpen)}
-                style={{
-                    width: '60px', height: '60px', borderRadius: '50%',
-                    backgroundColor: isOpen ? '#333' : '#8B5CF6',
-                    color: 'white', border: 'none',
-                    boxShadow: '0 4px 15px rgba(139, 92, 246, 0.4)',
-                    cursor: 'pointer', display: 'flex', alignItems: 'center',
-                    justifyContent: 'center', transition: 'all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275)'
-                }}
-            >
-                {isOpen ? (
-                    <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="18" y1="6" x2="6" y2="18"></line>
-                        <line x1="6" y1="6" x2="18" y2="18"></line>
-                    </svg>
-                ) : (
-                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                        <line x1="3" y1="12" x2="21" y2="12"></line>
-                        <line x1="3" y1="6" x2="21" y2="6"></line>
-                        <line x1="3" y1="18" x2="21" y2="18"></line>
-                    </svg>
-                )}
+            {/* 2. 단일 스티키 인디케이터 (메뉴가 닫혀있고 모드가 활성화된 경우) */}
+            {!isOpen && activeMode && (
+                <div
+                    style={stickyIndicatorStyle(activeMode.bgColor, activeMode.color)}
+                    onClick={activeMode.toggle}
+                >
+                    <span style={{ fontSize: '1.2rem' }}>{activeMode.icon}</span>
+                    <span style={{ fontSize: '0.65rem', fontWeight: 'bold', color: activeMode.color }}>중단</span>
+                </div>
+            )}
+
+            {/* 3. 메인 플로팅 버튼 */}
+            <button onClick={toggleMenu} style={mainButtonStyle(isOpen || !!activeMode)}>
+                {isOpen ? '✕' : 'MENU'}
             </button>
         </div>
     );
 };
+
+const containerStyle: React.CSSProperties = {
+    position: 'fixed',
+    bottom: '30px',
+    right: '20px',
+    width: '60px',  // 버튼 너비와 일치시켜 흔들림 방지
+    height: '60px', // 버튼 높이와 일치시켜 흔들림 방지
+    zIndex: 1000,
+};
+
+const menuListStyle: React.CSSProperties = {
+    position: 'absolute',
+    bottom: '75px', // 메인 버튼(60px) + 여백(15px) 위에 배치
+    right: 0,
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '10px',
+    alignItems: 'flex-end',
+    width: 'max-content'
+};
+
+const menuItemStyle: React.CSSProperties = {
+    padding: '10px 18px',
+    borderRadius: '25px',
+    backgroundColor: 'white',
+    border: '1px solid #E5E7EB',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+    fontSize: '0.9rem',
+    fontWeight: '600',
+    color: '#4B5563',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap'
+};
+
+const mainButtonStyle = (isActive: boolean): React.CSSProperties => ({
+    width: '60px',
+    height: '60px',
+    borderRadius: '30px',
+    backgroundColor: isActive ? '#8B5CF6' : 'white',
+    color: isActive ? 'white' : '#8B5CF6',
+    border: 'none',
+    boxShadow: '0 4px 15px rgba(139,92,246,0.3)',
+    fontSize: '0.85rem',
+    fontWeight: 'bold',
+    cursor: 'pointer',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 0,
+    transition: 'all 0.2s ease',
+    position: 'absolute', // 컨테이너 안에서 절대 위치 고정
+    bottom: 0,
+    right: 0
+});
+
+const stickyIndicatorStyle = (bgColor: string, borderColor: string): React.CSSProperties => ({
+    position: 'absolute',
+    bottom: '75px', // 메인 버튼 위에 배치
+    right: '4px',   // 60px 버튼 중앙에 맞추기 위한 미세 조정 ( (60-52)/2 )
+    width: '52px',
+    height: '52px',
+    borderRadius: '26px',
+    backgroundColor: bgColor,
+    border: `2px solid ${borderColor}`,
+    display: 'flex',
+    flexDirection: 'column',
+    justifyContent: 'center',
+    alignItems: 'center',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.1)',
+    cursor: 'pointer'
+});
 
 export default FloatingMenu;

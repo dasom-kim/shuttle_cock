@@ -4,7 +4,9 @@ import Toggle from '../components/Toggle';
 import FloatingMenu from '../components/FloatingMenu';
 import LoginModal from '../components/LoginModal';
 import AddShuttleModal from '../components/AddShuttleModal'; // 모달 임포트
-import { saveShuttleInfo, fetchAllStations } from '../services/shuttleService'; // 저장 서비스 임포트
+import { saveShuttleInfo, fetchAllStations } from '../services/shuttleService';
+import StationDetailSheet from "../components/StationDetailSheet"; // 저장 서비스 임포트
+
 
 // 커스텀 마커 아이콘 생성 함수 (활성화 여부에 따라 색상 반환)
 const getMarkerIcon = (isActive: boolean) => {
@@ -32,9 +34,32 @@ const MapPage = () => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [selectedCoord, setSelectedCoord] = useState<{ lat: number; lng: number } | null>(null);
     const [stations, setStations] = useState<any[]>([]);
+    const [selectedStation, setSelectedStation] = useState<any>(null);
+    const [isDetailOpen, setIsDetailOpen] = useState(false);
 
     const mapRef = useRef<naver.maps.Map | null>(null);
     const markersRef = useRef<naver.maps.Marker[]>([]);
+
+    /**
+     * ✨ Firestore에서 최신 데이터를 가져와 상태를 업데이트하는 함수
+     */
+    const loadData = async () => {
+        try {
+            const data = await fetchAllStations(); // 서비스에서 전체 데이터 호출
+            setStations(data);
+
+            // 현재 상세창이 열려있다면(selectedStation이 있다면),
+            // 전체 데이터 중 해당 정류장만 찾아 상세 정보도 최신화해줍니다.
+            if (selectedStation) {
+                const updated = data.find((s: any) => s.id === selectedStation.id);
+                if (updated) {
+                    setSelectedStation(updated);
+                }
+            }
+        } catch (error) {
+            console.error("데이터 로드 실패:", error);
+        }
+    };
 
     // 1. 초기 맵 렌더링 및 데이터 Fetch
     useEffect(() => {
@@ -47,12 +72,7 @@ const MapPage = () => {
         };
         mapRef.current = new window.naver.maps.Map('map', mapOptions);
 
-        // Firestore에서 데이터 불러오기
-        const loadData = async () => {
-            const data = await fetchAllStations();
-            setStations(data);
-        };
-
+        // ✨ 데이터 불러오기 실행
         loadData();
     }, []);
 
@@ -80,6 +100,12 @@ const MapPage = () => {
                 map: mapRef.current!,
                 icon: getMarkerIcon(isActive),
                 zIndex: isActive ? 100 : 10,
+            });
+
+            // ✨ 마커 클릭 이벤트 추가
+            window.naver.maps.Event.addListener(marker, 'click', () => {
+                setSelectedStation(station);
+                setIsDetailOpen(true);
             });
 
             marker.set('stationType', station.type);
@@ -131,6 +157,7 @@ const MapPage = () => {
                     type: formData.type,
                     time: formData.time,
                     congestion: formData.congestion,
+                    congestionUpdatedAt: formData.congestionUpdatedAt,
                     addedBy: user?.uid || 'anonymous',
                     days: ['월', '화', '수', '목', '금']
                 });
@@ -174,13 +201,21 @@ const MapPage = () => {
 
             <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
 
-            {/* 정류장 정보 입력 모달 */}
             <AddShuttleModal
                 isOpen={isAddModalOpen}
                 lat={selectedCoord?.lat || 0}
                 lng={selectedCoord?.lng || 0}
                 onClose={() => setIsAddModalOpen(false)}
                 onSave={handleSaveShuttle}
+            />
+
+            <StationDetailSheet
+                isOpen={isDetailOpen}
+                onClose={() => setIsDetailOpen(false)}
+                stationId={selectedStation?.id} // ⭐️ 이 stationId가 정확히 넘어가고 있는지 확인!
+                stationName={selectedStation?.shuttles[0]?.name || '정류장 정보'}
+                shuttles={selectedStation?.shuttles || []}
+                onRefresh={loadData}
             />
         </div>
     );
