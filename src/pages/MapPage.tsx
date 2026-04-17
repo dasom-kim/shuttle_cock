@@ -197,6 +197,10 @@ const MapPage = () => {
                 isAddMode={isAddMode}
                 onToggleAddMode={() => setIsAddMode(!isAddMode)}
                 onOpenLogin={() => setIsLoginModalOpen(true)}
+                isRankingOpen={false}
+                isFavOpen={false}
+                onToggleRanking={() => {}}
+                onToggleFav={() => {}}
             />
 
             <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />

@@ -12,6 +12,10 @@ dist
 dist-ssr
 dev-dist
 *.local
+.agents
+.claude
+.firebase
+.junie
 
 # Editor directories and files
 .vscode/*
@@ -23,3 +27,6 @@ dev-dist
 *.njsproj
 *.sln
 *.sw?
+
+# Config
+src/firebaseConfig.ts

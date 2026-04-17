@@ -1,20 +1,14 @@
-import { initializeApp } from 'firebase/app';
+import { initializeApp, getApp } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 import { getAuth, GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
+import { firebaseConfig } from './firebaseConfig';
 
-// Firebase 콘솔에서 프로젝트 설정 시 제공받는 값으로 교체
-const firebaseConfig = {
-  apiKey: "AIzaSyDXOPRaTmTIT6Rz9rQPD595n6TL8EHqap8",
-  authDomain: "shuttle-cock-29463.firebaseapp.com",
-  projectId: "shuttle-cock-29463",
-  storageBucket: "shuttle-cock-29463.firebasestorage.app",
-  messagingSenderId: "4122813639",
-  appId: "1:4122813639:web:5525b4c16df34f5a980ae2",
-  measurementId: "G-HHW9Y0JW53"
-};
-
-// Firebase 초기화
-const app = initializeApp(firebaseConfig);
+let app;
+try {
+  app = getApp();
+} catch (e) {
+  app = initializeApp(firebaseConfig);
+}
 
 // 데이터베이스(Firestore) 및 인증(Auth) 객체 내보내기
 export const db = getFirestore(app);
