@@ -5,16 +5,18 @@ import { useFeedback } from './feedback/FeedbackProvider';
 
 interface FloatingMenuProps {
     user: User | null;         // 현재 로그인한 유저 정보
+    isAddMode: boolean;
     isRankingOpen: boolean;
     isFavOpen: boolean;
+    onToggleAddStation: () => void;
     onToggleRanking: () => void;
     onToggleFav: () => void;
     onOpenLogin: () => void;
 }
 
 const FloatingMenu: React.FC<FloatingMenuProps> = ({
-                                                       user, isRankingOpen, isFavOpen,
-                                                       onToggleRanking, onToggleFav, onOpenLogin
+                                                       user, isAddMode, isRankingOpen, isFavOpen,
+                                                       onToggleAddStation, onToggleRanking, onToggleFav, onOpenLogin
                                                    }) => {
     const [isOpen, setIsOpen] = useState(false);
     const { showToast, showConfirm } = useFeedback();
@@ -52,6 +54,12 @@ const FloatingMenu: React.FC<FloatingMenuProps> = ({
                     ) : (
                         <button onClick={() => { onOpenLogin(); setIsOpen(false); }} style={{ ...menuItemStyle, color: '#8B5CF6' }}>🔑 로그인</button>
                     )}
+                    <button
+                        onClick={onToggleAddStation}
+                        style={user ? { ...menuItemStyle, color: isAddMode ? '#8B5CF6' : '#4B5563' } : disabledMenuItemStyle}
+                    >
+                        {user ? (isAddMode ? '➕ 정류장 추가 종료' : '➕ 정류장 추가') : '🔒 정류장 추가'}
+                    </button>
                     <button
                         onClick={() => {
                             if (!user) {

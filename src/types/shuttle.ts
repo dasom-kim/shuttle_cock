@@ -5,7 +5,7 @@ export interface Shuttle {
     type: 'work' | 'leave';
     boardingTime: string;
     alightingTime: string;
-    congestion: '여유' | '적당' | '부족';
+    congestion: '여유' | '보통' | '부족';
     days: string[];
     addedBy: string;
     createdAt: Date;

@@ -13,11 +13,18 @@ import { getDistance } from '../utils/mapUtils';
 const STATION_MATCH_RADIUS_METERS = 200;
 
 
-// 커스텀 마커 아이콘 생성 함수 (활성화 여부에 따라 색상 반환)
-const getMarkerIcon = (isActive: boolean) => {
-    // 활성화: 비비드 퍼플 / 비활성화: 페일 라벤더
-    const color = isActive ? '#8B5CF6' : '#C4B5FD';
-    const opacity = isActive ? 1 : 0.8;
+// 커스텀 마커 아이콘 생성 함수
+const getMarkerIcon = (isActive: boolean, isSelected: boolean) => {
+    let color = '#C4B5FD';
+    let opacity = 0.8;
+
+    if (isSelected) {
+        color = '#EF4444';
+        opacity = 1;
+    } else if (isActive) {
+        color = '#8B5CF6';
+        opacity = 1;
+    }
 
     const svgIcon = `
     <svg width="36" height="36" viewBox="0 0 24 24" fill="${color}" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0px 2px 4px rgba(0,0,0,0.2));">
@@ -42,11 +49,14 @@ const MapPage = () => {
     const [selectedStationName, setSelectedStationName] = useState('');
     const [stations, setStations] = useState<any[]>([]);
     const [selectedStation, setSelectedStation] = useState<any>(null);
+    const [selectedMarkerStationId, setSelectedMarkerStationId] = useState<string | null>(null);
     const [isDetailOpen, setIsDetailOpen] = useState(false);
 
     const mapRef = useRef<naver.maps.Map | null>(null);
     const markersRef = useRef<naver.maps.Marker[]>([]);
+    const groupedAreaCirclesRef = useRef<naver.maps.Circle[]>([]);
     const ignoreNextMapClickRef = useRef(false);
+    const mapClickIgnoreTimerRef = useRef<number | null>(null);
 
     const getOfficialStationName = useCallback(async (lat: number, lng: number) => {
         try {
@@ -96,6 +106,18 @@ const MapPage = () => {
         }
     };
 
+    const clearMapClickIgnoreTimer = useCallback(() => {
+        if (mapClickIgnoreTimerRef.current) {
+            window.clearTimeout(mapClickIgnoreTimerRef.current);
+            mapClickIgnoreTimerRef.current = null;
+        }
+    }, []);
+
+    const clearMapClickIgnore = useCallback(() => {
+        clearMapClickIgnoreTimer();
+        ignoreNextMapClickRef.current = false;
+    }, [clearMapClickIgnoreTimer]);
+
     // 1. 초기 맵 렌더링 및 데이터 Fetch
     useEffect(() => {
         if (!window.naver) return;
@@ -113,7 +135,8 @@ const MapPage = () => {
 
     // 2. stations 데이터가 업데이트되거나, filter가 바뀔 때 마커 다시 그리기
     useEffect(() => {
-        if (!mapRef.current) return;
+        const map = mapRef.current;
+        if (!map) return;
 
         // 기존 마커 지도에서 모두 지우기 (초기화)
         markersRef.current.forEach(marker => marker.setMap(null));
@@ -130,19 +153,27 @@ const MapPage = () => {
                 isActive = filter.leave;
             }
 
+            const isSelected = station.id === selectedMarkerStationId;
+
             const marker = new window.naver.maps.Marker({
                 position: new window.naver.maps.LatLng(station.lat, station.lng),
                 map: mapRef.current!,
-                icon: getMarkerIcon(isActive),
-                zIndex: isActive ? 100 : 10,
+                icon: getMarkerIcon(isActive, isSelected),
+                zIndex: isSelected ? 200 : isActive ? 100 : 10,
             });
 
             // ✨ 마커 클릭 이벤트 추가
             window.naver.maps.Event.addListener(marker, 'click', async () => {
+                clearMapClickIgnoreTimer();
                 ignoreNextMapClickRef.current = true;
+                mapClickIgnoreTimerRef.current = window.setTimeout(() => {
+                    ignoreNextMapClickRef.current = false;
+                    mapClickIgnoreTimerRef.current = null;
+                }, 250);
                 const stationName = station.stationName || await getOfficialStationName(station.lat, station.lng);
                 const sameNamedStations = stations.filter((s: any) => (s.stationName || '') === stationName);
                 const mergedShuttles = sameNamedStations.flatMap((s: any) => s.shuttles || []);
+                setSelectedMarkerStationId(station.id || null);
 
                 setSelectedStation({
                     ...station,
@@ -155,7 +186,7 @@ const MapPage = () => {
             marker.set('stationType', station.type);
             markersRef.current.push(marker);
         });
-    }, [stations, filter, getOfficialStationName]); // stations나 filter가 바뀔 때마다 실행
+    }, [stations, filter, getOfficialStationName, selectedMarkerStationId, clearMapClickIgnoreTimer]); // stations나 filter가 바뀔 때마다 실행
 
     // 일반 지도 영역 클릭 시(마커 제외) 상세 바텀시트 닫기
     useEffect(() => {
@@ -163,17 +194,73 @@ const MapPage = () => {
 
         const listener = window.naver.maps.Event.addListener(mapRef.current, 'click', () => {
             if (ignoreNextMapClickRef.current) {
-                ignoreNextMapClickRef.current = false;
+                clearMapClickIgnore();
                 return;
             }
             setIsDetailOpen(false);
             setSelectedStation(null);
+            setSelectedMarkerStationId(null);
         });
 
         return () => {
             window.naver.maps.Event.removeListener(listener);
         };
-    }, [isAddMode]);
+    }, [isAddMode, clearMapClickIgnore]);
+
+    useEffect(() => {
+        return () => {
+            clearMapClickIgnore();
+            groupedAreaCirclesRef.current.forEach((circle) => circle.setMap(null));
+            groupedAreaCirclesRef.current = [];
+        };
+    }, [clearMapClickIgnore]);
+
+    useEffect(() => {
+        const map = mapRef.current;
+        if (!map) return;
+
+        groupedAreaCirclesRef.current.forEach((circle) => circle.setMap(null));
+        groupedAreaCirclesRef.current = [];
+
+        const groupedByStationName = new Map<string, any[]>();
+        stations.forEach((station: any) => {
+            const stationName = (station.stationName || '').trim();
+            if (!stationName) return;
+
+            if (!groupedByStationName.has(stationName)) {
+                groupedByStationName.set(stationName, []);
+            }
+            groupedByStationName.get(stationName)!.push(station);
+        });
+
+        groupedByStationName.forEach((groupStations) => {
+            if (!groupStations.length) return;
+
+            const centerLat =
+                groupStations.reduce((sum, station) => sum + station.lat, 0) / groupStations.length;
+            const centerLng =
+                groupStations.reduce((sum, station) => sum + station.lng, 0) / groupStations.length;
+
+            let radius = STATION_MATCH_RADIUS_METERS;
+            groupStations.forEach((station) => {
+                const distance = getDistance(centerLat, centerLng, station.lat, station.lng);
+                radius = Math.max(radius, distance + 20);
+            });
+
+            const circle = new window.naver.maps.Circle({
+                map,
+                center: new window.naver.maps.LatLng(centerLat, centerLng),
+                radius,
+                strokeColor: '#93C5FD',
+                strokeOpacity: 0.85,
+                strokeWeight: 2,
+                fillColor: '#BFDBFE',
+                fillOpacity: 0.28,
+                zIndex: 50
+            });
+            groupedAreaCirclesRef.current.push(circle);
+        });
+    }, [stations]);
 
     // 지도 클릭 이벤트 리스너
     useEffect(() => {
@@ -286,15 +373,9 @@ const MapPage = () => {
 
             <FloatingMenu
                 user={user}
+                isAddMode={isAddMode}
                 onOpenLogin={() => setIsLoginModalOpen(true)}
-                isRankingOpen={false}
-                isFavOpen={false}
-                onToggleRanking={() => {}}
-                onToggleFav={() => {}}
-            />
-
-            <button
-                onClick={() => {
+                onToggleAddStation={() => {
                     if (!user) {
                         showToast("로그인 후 이용해 주세요.", 'info');
                         setIsLoginModalOpen(true);
@@ -302,11 +383,11 @@ const MapPage = () => {
                     }
                     setIsAddMode((prev) => !prev);
                 }}
-                style={addStationTopButtonStyle(isAddMode)}
-            >
-                <span style={{ marginRight: '6px' }}>{user ? '➕' : '🔒'}</span>
-                {isAddMode ? '추가 모드 종료' : '정류장 추가'}
-            </button>
+                isRankingOpen={false}
+                isFavOpen={false}
+                onToggleRanking={() => {}}
+                onToggleFav={() => {}}
+            />
 
             <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
 
@@ -321,7 +402,11 @@ const MapPage = () => {
 
             <StationDetailSheet
                 isOpen={isDetailOpen}
-                onClose={() => setIsDetailOpen(false)}
+                onClose={() => {
+                    setIsDetailOpen(false);
+                    setSelectedStation(null);
+                    setSelectedMarkerStationId(null);
+                }}
                 stationId={selectedStation?.id} // ⭐️ 이 stationId가 정확히 넘어가고 있는지 확인!
                 stationName={selectedStation?.stationName || '정류장 정보'}
                 shuttles={selectedStation?.shuttles || []}
@@ -332,19 +417,3 @@ const MapPage = () => {
 };
 
 export default MapPage;
-
-const addStationTopButtonStyle = (isActive: boolean): React.CSSProperties => ({
-    position: 'fixed',
-    top: 'calc(env(safe-area-inset-top, 0px) + 20px)',
-    right: '20px',
-    zIndex: 1200,
-    border: 'none',
-    borderRadius: '999px',
-    padding: '10px 14px',
-    fontSize: '0.88rem',
-    fontWeight: 700,
-    cursor: 'pointer',
-    backgroundColor: isActive ? '#8B5CF6' : '#FFFFFF',
-    color: isActive ? '#FFFFFF' : '#4F46E5',
-    boxShadow: '0 6px 16px rgba(79, 70, 229, 0.2)'
-});

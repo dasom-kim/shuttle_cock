@@ -15,7 +15,7 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, st
     const [name, setName] = useState('');
     const [boardingTime, setBoardingTime] = useState('');
     const [alightingTime, setAlightingTime] = useState('');
-    const [congestion, setCongestion] = useState('적당');
+    const [congestion, setCongestion] = useState('보통');
     const [isDelete, setIsDelete] = useState(false);
 
     // 모달이 열릴 때 현재 값을 초기값으로 세팅
@@ -24,7 +24,7 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, st
             setName(shuttle.name);
             setBoardingTime(shuttle.boardingTime || shuttle.time || '');
             setAlightingTime(shuttle.alightingTime || shuttle.time || '');
-            setCongestion(shuttle.congestion || '적당');
+            setCongestion(shuttle.congestion || '보통');
             setIsDelete(false);
         }
     }, [shuttle, isOpen]);
@@ -79,7 +79,7 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, st
                 </p>
 
                 <div style={inputGroupStyle}>
-                    <label style={labelStyle}>기업명</label>
+                    <label style={labelStyle}>회사 이름</label>
                     <input type="text" value={shuttle.company} disabled style={disabledInputStyle} />
                 </div>
 
@@ -125,7 +125,7 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, st
                         style={isDelete ? disabledInputStyle : inputStyle}
                     >
                         <option value="여유">여유</option>
-                        <option value="적당">적당</option>
+                        <option value="보통">보통</option>
                         <option value="부족">부족</option>
                     </select>
                 </div>

@@ -1,6 +1,8 @@
 import React, {useEffect, useRef, useState} from 'react';
 import EditRequestModal from "../components/EditRequestModal";
 import { useAuth } from '../hooks/useAuth';
+import { useFeedback } from './feedback/FeedbackProvider';
+import { buildFavoriteShuttleKey, fetchFavoriteShuttleKeys, toggleFavoriteShuttle } from '../services/shuttleService';
 
 interface Shuttle {
     id: string;
@@ -29,14 +31,17 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                                                                    isOpen, stationId, stationName, shuttles, onClose, onAddShuttle
                                                                }) => {
     const { user } = useAuth();
+    const { showToast } = useFeedback();
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [targetShuttle, setTargetShuttle] = useState<any>(null);
+    const [favoriteShuttleKeys, setFavoriteShuttleKeys] = useState<Set<string>>(new Set());
+    const [favoritePendingKeys, setFavoritePendingKeys] = useState<Set<string>>(new Set());
     const [companyFilter, setCompanyFilter] = useState('all');
     const [typeFilter, setTypeFilter] = useState<'all' | 'work' | 'leave'>('all');
-    const [congestionFilter, setCongestionFilter] = useState<'all' | '여유' | '적당' | '부족'>('all');
+    const [congestionFilter, setCongestionFilter] = useState<'all' | '여유' | '보통' | '부족'>('all');
     const [draftCompanyFilter, setDraftCompanyFilter] = useState('all');
     const [draftTypeFilter, setDraftTypeFilter] = useState<'all' | 'work' | 'leave'>('all');
-    const [draftCongestionFilter, setDraftCongestionFilter] = useState<'all' | '여유' | '적당' | '부족'>('all');
+    const [draftCongestionFilter, setDraftCongestionFilter] = useState<'all' | '여유' | '보통' | '부족'>('all');
     const [sortMode, setSortMode] = useState<'time-asc' | 'time-desc' | 'updated-recent' | 'updated-old'>('time-asc');
     const [activePanel, setActivePanel] = useState<'none' | 'filter' | 'sort'>('none');
     const [sheetHeight, setSheetHeight] = useState<number | null>(null);
@@ -81,14 +86,14 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
 
     const companies = Array.from(new Set(shuttles.map((shuttle) => shuttle.company))).sort();
 
-    const filteredShuttles = shuttles.filter((shuttle) => {
+    const applyFilters = (target: Shuttle[]) => target.filter((shuttle) => {
         const matchesCompany = companyFilter === 'all' || shuttle.company === companyFilter;
         const matchesType = typeFilter === 'all' || shuttle.type === typeFilter;
         const matchesCongestion = congestionFilter === 'all' || shuttle.congestion === congestionFilter;
         return matchesCompany && matchesType && matchesCongestion;
     });
 
-    const sortedShuttles = [...filteredShuttles].sort((a, b) => {
+    const applySort = (target: Shuttle[]) => [...target].sort((a, b) => {
         const timeDiff = getTimeValue(getDisplayTime(a)) - getTimeValue(getDisplayTime(b));
         const updatedDiff = getUpdatedTimeValue(a.congestionUpdatedAt) - getUpdatedTimeValue(b.congestionUpdatedAt);
 
@@ -97,6 +102,15 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         if (sortMode === 'updated-recent') return updatedDiff !== 0 ? -updatedDiff : timeDiff;
         return updatedDiff !== 0 ? updatedDiff : timeDiff;
     });
+
+    const selectedLocationBaseShuttles = stationId
+        ? shuttles.filter((shuttle) => shuttle.stationId === stationId)
+        : [];
+    const selectedLocationShuttles = applySort(applyFilters(selectedLocationBaseShuttles));
+    const nearbyBaseShuttles = stationId
+        ? shuttles.filter((shuttle) => shuttle.stationId !== stationId)
+        : shuttles;
+    const nearbyShuttles = applySort(applyFilters(nearbyBaseShuttles));
 
     const appliedFilterCount =
         (companyFilter !== 'all' ? 1 : 0) +
@@ -133,6 +147,28 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
     }, [isOpen]);
 
     useEffect(() => {
+        if (!isOpen || !user) {
+            setFavoriteShuttleKeys(new Set());
+            return;
+        }
+
+        let isCancelled = false;
+        void fetchFavoriteShuttleKeys(user.uid)
+            .then((keys) => {
+                if (!isCancelled) {
+                    setFavoriteShuttleKeys(keys);
+                }
+            })
+            .catch((error) => {
+                console.error('즐겨찾기 조회 실패:', error);
+            });
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [isOpen, user]);
+
+    useEffect(() => {
         if (!isDraggingSheet) return;
 
         const minHeight = 260;
@@ -164,12 +200,131 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         };
     }, [isDraggingSheet]);
 
-    const handleStartDragSheet = (event: React.PointerEvent<HTMLDivElement>) => {
+    const handleStartDragSheet = (event: React.PointerEvent<HTMLElement>) => {
         if (!sheetRef.current) return;
+
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('button, input, select, textarea, a, [data-no-sheet-drag="true"]')) {
+            return;
+        }
+
         dragStartYRef.current = event.clientY;
         dragStartHeightRef.current = sheetRef.current.getBoundingClientRect().height;
         dragCurrentHeightRef.current = dragStartHeightRef.current;
         setIsDraggingSheet(true);
+    };
+
+    const handleToggleFavorite = async (shuttle: Shuttle) => {
+        if (!user || !shuttle.stationId) return;
+
+        const favoriteKey = buildFavoriteShuttleKey(shuttle.stationId, shuttle.id);
+        if (favoritePendingKeys.has(favoriteKey)) return;
+
+        setFavoritePendingKeys((prev) => new Set(prev).add(favoriteKey));
+
+        try {
+            const { isFavorite } = await toggleFavoriteShuttle(user.uid, shuttle);
+            const shuttleName = shuttle.name?.trim() || '해당 셔틀';
+            const lastCharCode = shuttleName.charCodeAt(shuttleName.length - 1);
+            const hasBatchim =
+                lastCharCode >= 0xac00 &&
+                lastCharCode <= 0xd7a3 &&
+                (lastCharCode - 0xac00) % 28 !== 0;
+            const objectParticle = hasBatchim ? '을' : '를';
+
+            setFavoriteShuttleKeys((prev) => {
+                const next = new Set(prev);
+                if (isFavorite) {
+                    next.add(favoriteKey);
+                } else {
+                    next.delete(favoriteKey);
+                }
+                return next;
+            });
+            showToast(
+                isFavorite
+                    ? `${shuttleName}${objectParticle} 즐겨찾기에 추가했어요.`
+                    : `${shuttleName}${objectParticle} 즐겨찾기에서 제거했어요.`,
+                'success'
+            );
+        } catch (error) {
+            console.error('즐겨찾기 토글 실패:', error);
+            showToast('즐겨찾기 처리 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.', 'error');
+        } finally {
+            setFavoritePendingKeys((prev) => {
+                const next = new Set(prev);
+                next.delete(favoriteKey);
+                return next;
+            });
+        }
+    };
+
+    const renderShuttleItem = (shuttle: Shuttle, keyPrefix: string) => {
+        const isEnabled = shuttle.enable !== false;
+        const favoriteKey = shuttle.stationId ? buildFavoriteShuttleKey(shuttle.stationId, shuttle.id) : '';
+        const isFavorite = favoriteKey ? favoriteShuttleKeys.has(favoriteKey) : false;
+        const isFavoritePending = favoriteKey ? favoritePendingKeys.has(favoriteKey) : false;
+
+        return (
+            <div
+                key={`${keyPrefix}-${shuttle.stationId || 'unknown'}-${shuttle.id}`}
+                style={{
+                    ...shuttleItemStyle,
+                    opacity: isEnabled ? 1 : 0.6,
+                    position: 'relative'
+                }}
+            >
+                {user && (
+                    <div style={favoriteRailStyle}>
+                        <button
+                            type="button"
+                            onClick={() => handleToggleFavorite(shuttle)}
+                            disabled={isFavoritePending}
+                            style={favoriteButtonStyle(isFavorite, isFavoritePending)}
+                            aria-label={isFavorite ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+                        >
+                            {isFavorite ? '★' : '☆'}
+                        </button>
+                    </div>
+                )}
+                <div style={shuttleContentStyle}>
+                    <div style={itemTopStyle}>
+                        <span style={shuttleTitleStyle}>{shuttle.name}</span>
+                        <span style={typeBadgeStyle(shuttle.type)}>
+                            {shuttle.type === 'work' ? '출근' : '퇴근'}
+                        </span>
+                        <button
+                            onClick={() => handleOpenEdit(shuttle)}
+                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem' }}
+                        >✏️</button>
+                        <div style={rightAlignContainerStyle}>
+                            {isEnabled && (
+                                <span style={congestionBadgeStyle(shuttle.congestion)}>
+                                    좌석 {shuttle.congestion}
+                                </span>
+                            )}
+                            <span style={timeStyle}>
+                                {isEnabled ? `${shuttle.type === 'work' ? '승차' : '하차'} ${getDisplayTime(shuttle)}` : '운행 중단'}
+                            </span>
+                        </div>
+                    </div>
+
+                    {!isEnabled && (
+                        <div style={suspendedBadgeStyle}>현재 정보에 의해 운행이 중단된 노선입니다.</div>
+                    )}
+
+                    <div style={infoRowStyle}>
+                        <span style={stationNameLabelStyle}>
+                            <span style={{ marginRight: '6px', fontSize: '0.9rem' }}>🏢</span>
+                            {shuttle.company}
+                        </span>
+                        <span style={timestampStyle}>
+                            마지막 업데이트: {getRelativeTime(shuttle.congestionUpdatedAt)}
+                        </span>
+                    </div>
+                </div>
+            </div>
+        );
     };
 
     if (!isOpen) return null;
@@ -178,6 +333,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         <div style={sheetOverlayStyle}>
             <div
                 ref={sheetRef}
+                onPointerDown={handleStartDragSheet}
                 style={sheetContentStyle(sheetHeight)}
             >
                 <div
@@ -244,12 +400,12 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                             <label style={controlLabelStyle}>혼잡도</label>
                             <select
                                 value={draftCongestionFilter}
-                                onChange={(e) => setDraftCongestionFilter(e.target.value as 'all' | '여유' | '적당' | '부족')}
+                                onChange={(e) => setDraftCongestionFilter(e.target.value as 'all' | '여유' | '보통' | '부족')}
                                 style={controlSelectStyle}
                             >
                                 <option value="all">전체</option>
                                 <option value="여유">여유</option>
-                                <option value="적당">적당</option>
+                                <option value="보통">보통</option>
                                 <option value="부족">부족</option>
                             </select>
                         </div>
@@ -314,63 +470,34 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                 </div>
 
                 <div style={listContainerStyle}>
-                    {sortedShuttles.map((shuttle) => {
-                        const isEnabled = shuttle.enable !== false; // undefined이거나 true면 운행 중
-
-                        return (
-                            <div key={shuttle.id} style={{
-                                ...shuttleItemStyle,
-                                opacity: isEnabled ? 1 : 0.6, // 중단된 경우 흐리게
-                                position: 'relative'
-                            }}>
-                            <div style={itemTopStyle}>
-                                <span style={shuttleTitleStyle}>{shuttle.name}</span>
-                                <span style={typeBadgeStyle(shuttle.type)}>
-                                    {shuttle.type === 'work' ? '출근' : '퇴근'}
-                                </span>
-                                <button
-                                    onClick={() => handleOpenEdit(shuttle)}
-                                    style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem' }}
-                                >✏️</button>
-                                <div style={rightAlignContainerStyle}>
-                                    {shuttle.enable !== false && (
-                                        <span style={congestionBadgeStyle(shuttle.congestion)}>
-                                            혼잡도 {shuttle.congestion}
-                                        </span>
-                                    )}
-                                    <span style={timeStyle}>
-                                        {shuttle.enable === false ? '운행 중단' : `${shuttle.type === 'work' ? '승차' : '하차'} ${getDisplayTime(shuttle)}`}
-                                    </span>
-                                </div>
-                            </div>
-
-                            {!isEnabled && (
-                                <div style={suspendedBadgeStyle}>현재 정보에 의해 운행이 중단된 노선입니다.</div>
+                    <section style={sectionStyle}>
+                        <h3 style={sectionTitleStyle}>선택된 위치에서 운행하는 셔틀</h3>
+                        <div style={sectionListStyle}>
+                            {selectedLocationShuttles.map((shuttle) => renderShuttleItem(shuttle, 'selected'))}
+                            {selectedLocationShuttles.length === 0 && (
+                                <div style={emptyStateStyle}>현재 조건에 맞는 셔틀 정보가 없습니다.</div>
                             )}
-
-                            <div style={infoRowStyle}>
-                                <span style={stationNameLabelStyle}>
-                                    <span style={{ marginRight: '6px', fontSize: '0.9rem' }}>🏢</span>
-                                    {shuttle.company}
-                                </span>
-                                    <span style={timestampStyle}>
-                                    마지막 업데이트: {getRelativeTime(shuttle.congestionUpdatedAt)}
-                                </span>
-                            </div>
-
-                            <EditRequestModal
-                                isOpen={isEditModalOpen}
-                                onClose={() => setIsEditModalOpen(false)}
-                                stationId={targetShuttle?.stationId || stationId}
-                                shuttle={targetShuttle}
-                                user={user} // useAuth() 등에서 가져온 유저 정보
-                            />
                         </div>
-                    )})}
-                    {sortedShuttles.length === 0 && (
-                        <div style={emptyStateStyle}>현재 조건에 맞는 셔틀 정보가 없습니다.</div>
-                    )}
+                    </section>
+
+                    <section style={sectionStyle}>
+                        <h3 style={sectionTitleStyle}>반경 200m 이내에서 운행하는 셔틀</h3>
+                        <div style={sectionListStyle}>
+                            {nearbyShuttles.map((shuttle) => renderShuttleItem(shuttle, 'nearby'))}
+                            {nearbyShuttles.length === 0 && (
+                                <div style={emptyStateStyle}>현재 조건에 맞는 셔틀 정보가 없습니다.</div>
+                            )}
+                        </div>
+                    </section>
                 </div>
+
+                <EditRequestModal
+                    isOpen={isEditModalOpen}
+                    onClose={() => setIsEditModalOpen(false)}
+                    stationId={targetShuttle?.stationId || stationId}
+                    shuttle={targetShuttle}
+                    user={user}
+                />
             </div>
         </div>
     );
@@ -381,7 +508,7 @@ const congestionBadgeStyle = (status: string): React.CSSProperties => {
     let textColor = '#374151';
 
     if (status === '여유') { bgColor = '#D1FAE5'; textColor = '#065F46'; }
-    else if (status === '적당') { bgColor = '#FEF3C7'; textColor = '#92400E'; }
+    else if (status === '보통') { bgColor = '#FEF3C7'; textColor = '#92400E'; }
     else if (status === '부족') { bgColor = '#FEE2E2'; textColor = '#B91C1C'; }
 
     return {
@@ -396,6 +523,26 @@ const congestionBadgeStyle = (status: string): React.CSSProperties => {
 };
 
 const itemTopStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' };
+const favoriteRailStyle: React.CSSProperties = {
+    width: '46px',
+    minWidth: '46px',
+    display: 'flex',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: '8px 0'
+};
+const favoriteButtonStyle = (isFavorite: boolean, disabled: boolean): React.CSSProperties => ({
+    width: '36px',
+    height: '36px',
+    border: 'none',
+    background: 'transparent',
+    color: isFavorite ? '#8B5CF6' : '#9CA3AF',
+    fontSize: '1.5rem',
+    lineHeight: 1,
+    padding: 0,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.5 : 1
+});
 const rightAlignContainerStyle: React.CSSProperties = { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' };
 const infoRowStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' };
 const stationNameLabelStyle: React.CSSProperties = { fontSize: '0.9rem', color: '#4B5563' };
@@ -555,7 +702,7 @@ const addShuttleButtonStyle: React.CSSProperties = {
     border: 'none',
     borderRadius: '999px',
     backgroundColor: '#EEF2FF',
-    color: '#4F46E5',
+    color: '#8B5CF6',
     padding: '6px 10px',
     fontSize: '0.78rem',
     fontWeight: 700,
@@ -564,7 +711,23 @@ const addShuttleButtonStyle: React.CSSProperties = {
 };
 const closeButtonStyle: React.CSSProperties = { background: 'none', border: 'none', fontSize: '1.5rem', color: '#9CA3AF', cursor: 'pointer' };
 const listContainerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '12px' };
-const shuttleItemStyle: React.CSSProperties = { padding: '15px', borderRadius: '12px', backgroundColor: '#F9FAFB', border: '1px solid #F3F4F6' };
+const sectionStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '8px' };
+const sectionTitleStyle: React.CSSProperties = {
+    margin: '10px 0',
+    fontSize: '16px',
+    fontWeight: 700,
+    color: '#1F2937'
+};
+const sectionListStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '10px' };
+const shuttleItemStyle: React.CSSProperties = {
+    padding: '0',
+    borderRadius: '12px',
+    backgroundColor: '#F9FAFB',
+    border: '1px solid #F3F4F6',
+    display: 'flex',
+    alignItems: 'stretch'
+};
+const shuttleContentStyle: React.CSSProperties = { flex: 1, padding: '15px' };
 const shuttleTitleStyle: React.CSSProperties = { fontWeight: 'bold', color: '#1F2937' };
 const typeBadgeStyle = (type: string): React.CSSProperties => ({ fontSize: '0.75rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: type === 'work' ? '#DBEAFE' : '#FEF3C7', color: type === 'work' ? '#1E40AF' : '#92400E' });
 const timeStyle: React.CSSProperties = { fontSize: '0.9rem', color: '#6B7280', marginLeft: 'auto' };

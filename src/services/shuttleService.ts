@@ -1,8 +1,18 @@
 import { db } from './firebase';
-import { serverTimestamp, collection, addDoc, getDocs, doc, updateDoc } from 'firebase/firestore';
+import {
+    serverTimestamp,
+    collection,
+    addDoc,
+    getDocs,
+    doc,
+    updateDoc,
+    setDoc,
+    getDoc,
+    deleteDoc
+} from 'firebase/firestore';
 import { getDistance } from '../utils/mapUtils';
 
-const STATION_MATCH_RADIUS_METERS = 200;
+const STATION_POSITION_MERGE_RADIUS_METERS = 1;
 
 export interface ShuttleData {
     name: string;
@@ -16,8 +26,23 @@ export interface ShuttleData {
     addedBy: string;    // 등록한 유저의 UID
 }
 
+interface FavoriteShuttlePayload {
+    id: string;
+    stationId?: string;
+    name: string;
+    company: string;
+    type: 'work' | 'leave';
+    boardingTime?: string;
+    alightingTime?: string;
+}
+
+export const buildFavoriteShuttleKey = (stationId: string, shuttleId: string) => `${stationId}_${shuttleId}`;
+
 /**
- * 셔틀 정보를 Firestore에 저장 (200m 이내 중복 체크 포함)
+ * 셔틀 정보를 Firestore에 저장
+ * - 정류장 명칭은 UI에서 200m 기준으로 기존 명칭을 재사용할 수 있음
+ * - 저장 시 마커 좌표는 사용자가 선택한 위치를 유지해야 하므로
+ *   "동일 위치(1m 이내)"일 때만 기존 정류장 문서에 합칩니다.
  */
 export const saveShuttleInfo = async (lat: number, lng: number, shuttle: ShuttleData, stationName: string) => {
     try {
@@ -28,11 +53,11 @@ export const saveShuttleInfo = async (lat: number, lng: number, shuttle: Shuttle
         let targetStationName = "";
         let nearestDistance = Infinity;
 
-        // 1. 200m 이내 기존 정류장이 있는지 전수 조사 (최근접 정류장 우선)
+        // 1. 동일 위치(1m 이내) 기존 정류장이 있는지 전수 조사 (최근접 정류장 우선)
         querySnapshot.forEach((stationDoc) => {
             const data = stationDoc.data();
             const distance = getDistance(lat, lng, data.lat, data.lng);
-            if (distance <= STATION_MATCH_RADIUS_METERS && distance < nearestDistance) {
+            if (distance <= STATION_POSITION_MERGE_RADIUS_METERS && distance < nearestDistance) {
                 targetStationId = stationDoc.id;
                 targetStationName = data.stationName || "";
                 nearestDistance = distance;
@@ -143,4 +168,43 @@ export const submitShuttleRequest = async (requestData: any) => {
         console.error("요청 제출 실패:", error);
         throw error;
     }
+};
+
+export const fetchFavoriteShuttleKeys = async (uid: string) => {
+    const favoritesRef = collection(db, 'users', uid, 'favoriteShuttles');
+    const snapshot = await getDocs(favoritesRef);
+    const keys = new Set<string>();
+
+    snapshot.forEach((favoriteDoc) => {
+        keys.add(favoriteDoc.id);
+    });
+
+    return keys;
+};
+
+export const toggleFavoriteShuttle = async (uid: string, shuttle: FavoriteShuttlePayload) => {
+    if (!shuttle.stationId) {
+        throw new Error('stationId가 없는 셔틀은 즐겨찾기할 수 없습니다.');
+    }
+
+    const favoriteKey = buildFavoriteShuttleKey(shuttle.stationId, shuttle.id);
+    const favoriteRef = doc(db, 'users', uid, 'favoriteShuttles', favoriteKey);
+    const favoriteSnap = await getDoc(favoriteRef);
+
+    if (favoriteSnap.exists()) {
+        await deleteDoc(favoriteRef);
+        return { isFavorite: false };
+    }
+
+    await setDoc(favoriteRef, {
+        stationId: shuttle.stationId,
+        shuttleId: shuttle.id,
+        name: shuttle.name,
+        company: shuttle.company,
+        type: shuttle.type,
+        boardingTime: shuttle.boardingTime || '',
+        alightingTime: shuttle.alightingTime || '',
+        createdAt: serverTimestamp()
+    });
+    return { isFavorite: true };
 };
