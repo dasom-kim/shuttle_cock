@@ -11,6 +11,14 @@ import { reverseGeocodeNcloud } from '../services/geocodeService';
 import { getDistance } from '../utils/mapUtils';
 
 const STATION_MATCH_RADIUS_METERS = 200;
+const ACTIVE_MARKER_COLOR = '#EF4444';
+const MARKER_FOCUS_ZOOM = 15;
+const INVALID_STATION_NAME_PATTERNS = [
+    /^정류장\s*정보$/i,
+    /^정류장정보$/i,
+    /^정류장\s*명칭\s*불러오는\s*중/i,
+    /^정보\s*없음$/i
+];
 
 
 // 커스텀 마커 아이콘 생성 함수
@@ -19,7 +27,7 @@ const getMarkerIcon = (isActive: boolean, isSelected: boolean) => {
     let opacity = 0.8;
 
     if (isSelected) {
-        color = '#EF4444';
+        color = ACTIVE_MARKER_COLOR;
         opacity = 1;
     } else if (isActive) {
         color = '#8B5CF6';
@@ -47,6 +55,10 @@ const MapPage = () => {
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [selectedCoord, setSelectedCoord] = useState<{ lat: number; lng: number } | null>(null);
     const [selectedStationName, setSelectedStationName] = useState('');
+    const [selectedStationNameOptions, setSelectedStationNameOptions] = useState<Array<{
+        name: string;
+        source: 'nearby' | 'api' | 'fallback';
+    }>>([]);
     const [stations, setStations] = useState<any[]>([]);
     const [selectedStation, setSelectedStation] = useState<any>(null);
     const [selectedMarkerStationId, setSelectedMarkerStationId] = useState<string | null>(null);
@@ -55,16 +67,20 @@ const MapPage = () => {
     const mapRef = useRef<naver.maps.Map | null>(null);
     const markersRef = useRef<naver.maps.Marker[]>([]);
     const groupedAreaCirclesRef = useRef<naver.maps.Circle[]>([]);
+    const destinationMarkersRef = useRef<naver.maps.Marker[]>([]);
+    const routePolylinesRef = useRef<naver.maps.Polyline[]>([]);
+    const routeInfoWindowsRef = useRef<naver.maps.InfoWindow[]>([]);
     const ignoreNextMapClickRef = useRef(false);
     const mapClickIgnoreTimerRef = useRef<number | null>(null);
 
+    const isValidStationName = useCallback((value: string) => {
+        const normalized = value.trim();
+        if (!normalized) return false;
+        return !INVALID_STATION_NAME_PATTERNS.some((pattern) => pattern.test(normalized));
+    }, []);
+
     const getOfficialStationName = useCallback(async (lat: number, lng: number) => {
-        try {
-            return await reverseGeocodeNcloud(lat, lng);
-        } catch (error) {
-            console.error('역지오코딩 실패:', error);
-            return '정류장 정보';
-        }
+        return reverseGeocodeNcloud(lat, lng);
     }, []);
 
     const findNearbyStationName = useCallback((lat: number, lng: number) => {
@@ -73,7 +89,7 @@ const MapPage = () => {
 
         stations.forEach((station) => {
             const stationName = (station.stationName || '').trim();
-            if (!stationName) return;
+            if (!isValidStationName(stationName)) return;
 
             const distance = getDistance(lat, lng, station.lat, station.lng);
             if (distance <= STATION_MATCH_RADIUS_METERS && distance < nearestDistance) {
@@ -83,7 +99,7 @@ const MapPage = () => {
         });
 
         return nearestStationName;
-    }, [stations]);
+    }, [stations, isValidStationName]);
 
     /**
      * ✨ Firestore에서 최신 데이터를 가져와 상태를 업데이트하는 함수
@@ -117,6 +133,32 @@ const MapPage = () => {
         clearMapClickIgnoreTimer();
         ignoreNextMapClickRef.current = false;
     }, [clearMapClickIgnoreTimer]);
+
+    const clearRouteOverlays = useCallback(() => {
+        destinationMarkersRef.current.forEach((marker) => marker.setMap(null));
+        destinationMarkersRef.current = [];
+        routePolylinesRef.current.forEach((line) => line.setMap(null));
+        routePolylinesRef.current = [];
+        routeInfoWindowsRef.current.forEach((infoWindow) => infoWindow.close());
+        routeInfoWindowsRef.current = [];
+    }, []);
+
+    const getTimeMinutes = (value?: string) => {
+        if (!value) return null;
+        const [h, m] = value.split(':').map(Number);
+        if (!Number.isFinite(h) || !Number.isFinite(m)) return null;
+        return h * 60 + m;
+    };
+
+    const getDurationText = (boarding?: string, alighting?: string) => {
+        const boardingMinutes = getTimeMinutes(boarding);
+        const alightingMinutes = getTimeMinutes(alighting);
+        if (boardingMinutes === null || alightingMinutes === null) return '소요 시간 정보 없음';
+
+        let diff = alightingMinutes - boardingMinutes;
+        if (diff < 0) diff += 24 * 60;
+        return `소요 ${diff}분`;
+    };
 
     // 1. 초기 맵 렌더링 및 데이터 Fetch
     useEffect(() => {
@@ -170,9 +212,14 @@ const MapPage = () => {
                     ignoreNextMapClickRef.current = false;
                     mapClickIgnoreTimerRef.current = null;
                 }, 250);
+                clearRouteOverlays();
+                map.setCenter(new window.naver.maps.LatLng(station.lat, station.lng));
+                map.setZoom(MARKER_FOCUS_ZOOM, true);
                 const stationName = station.stationName || await getOfficialStationName(station.lat, station.lng);
-                const sameNamedStations = stations.filter((s: any) => (s.stationName || '') === stationName);
-                const mergedShuttles = sameNamedStations.flatMap((s: any) => s.shuttles || []);
+                const nearbyStations = stations.filter((s: any) => (
+                    getDistance(station.lat, station.lng, s.lat, s.lng) <= STATION_MATCH_RADIUS_METERS
+                ));
+                const mergedShuttles = nearbyStations.flatMap((s: any) => s.shuttles || []);
                 setSelectedMarkerStationId(station.id || null);
 
                 setSelectedStation({
@@ -200,20 +247,22 @@ const MapPage = () => {
             setIsDetailOpen(false);
             setSelectedStation(null);
             setSelectedMarkerStationId(null);
+            clearRouteOverlays();
         });
 
         return () => {
             window.naver.maps.Event.removeListener(listener);
         };
-    }, [isAddMode, clearMapClickIgnore]);
+    }, [isAddMode, clearMapClickIgnore, clearRouteOverlays]);
 
     useEffect(() => {
         return () => {
             clearMapClickIgnore();
             groupedAreaCirclesRef.current.forEach((circle) => circle.setMap(null));
             groupedAreaCirclesRef.current = [];
+            clearRouteOverlays();
         };
-    }, [clearMapClickIgnore]);
+    }, [clearMapClickIgnore, clearRouteOverlays]);
 
     useEffect(() => {
         const map = mapRef.current;
@@ -262,6 +311,90 @@ const MapPage = () => {
         });
     }, [stations]);
 
+    const handleSelectShuttleRoute = useCallback((shuttle: any) => {
+        const map = mapRef.current;
+        if (!map) return;
+
+        clearRouteOverlays();
+
+        const destX = Number(shuttle?.destinationX);
+        const destY = Number(shuttle?.destinationY);
+        if (!Number.isFinite(destX) || !Number.isFinite(destY)) return;
+
+        const originStation =
+            (shuttle?.stationId ? stations.find((station: any) => station.id === shuttle.stationId) : null) ||
+            stations.find((station: any) => station.id === selectedMarkerStationId) ||
+            selectedStation;
+
+        const originLat = Number(originStation?.lat);
+        const originLng = Number(originStation?.lng);
+        if (!Number.isFinite(originLat) || !Number.isFinite(originLng)) return;
+
+        const stationPoint = new window.naver.maps.LatLng(originLat, originLng);
+        const remotePoint = new window.naver.maps.LatLng(destY, destX);
+        const linePath =
+            shuttle?.type === 'leave'
+                ? [remotePoint, stationPoint]
+                : [stationPoint, remotePoint];
+        const bounds = new window.naver.maps.LatLngBounds(stationPoint, remotePoint);
+        map.fitBounds(bounds, {
+            top: 80,
+            right: 80,
+            bottom: 120,
+            left: 80
+        });
+
+        const destinationMarker = new window.naver.maps.Marker({
+            position: remotePoint,
+            map,
+            icon: {
+                content: `<div style="width:16px;height:16px;border-radius:50%;background:${ACTIVE_MARKER_COLOR};border:2px solid #FFFFFF;box-shadow:0 2px 8px rgba(239,68,68,0.35);"></div>`,
+                anchor: new window.naver.maps.Point(8, 8)
+            },
+            zIndex: 180
+        });
+        destinationMarkersRef.current.push(destinationMarker);
+
+        const routeLine = new window.naver.maps.Polyline({
+            map,
+            path: linePath,
+            strokeColor: ACTIVE_MARKER_COLOR,
+            strokeOpacity: 0.9,
+            strokeWeight: 3,
+            zIndex: 120
+        });
+        routePolylinesRef.current.push(routeLine);
+
+        const pointTimeLabel = shuttle?.type === 'leave' ? '승차' : '하차';
+        const pointTimeValue = shuttle?.type === 'leave' ? shuttle?.boardingTime : shuttle?.alightingTime;
+        const durationText = getDurationText(shuttle?.boardingTime, shuttle?.alightingTime);
+        const infoWindow = new window.naver.maps.InfoWindow({
+            content: `
+                <div style="
+                    background:#FFFFFF;
+                    border:1px solid #FCA5A5;
+                    border-radius:12px;
+                    padding:8px 10px;
+                    box-shadow:0 8px 18px rgba(15,23,42,0.14);
+                    font-size:12px;
+                    color:#991B1B;
+                    line-height:1.4;
+                    white-space:nowrap;
+                    font-weight:700;
+                ">
+                    ${pointTimeLabel} ${pointTimeValue || '정보 없음'}<br />
+                    ${durationText}
+                </div>
+            `,
+            borderWidth: 0,
+            backgroundColor: 'transparent',
+            disableAnchor: true,
+            pixelOffset: new window.naver.maps.Point(24, -10)
+        });
+        infoWindow.open(map, destinationMarker);
+        routeInfoWindowsRef.current.push(infoWindow);
+    }, [clearRouteOverlays, selectedMarkerStationId, selectedStation, stations]);
+
     // 지도 클릭 이벤트 리스너
     useEffect(() => {
         if (!mapRef.current) return;
@@ -284,16 +417,30 @@ const MapPage = () => {
                     lng
                 });
                 setIsAddModalOpen(true);
+                setSelectedStationName('정류장 명칭 불러오는 중...');
+                setSelectedStationNameOptions([]);
 
                 const nearbyStationName = findNearbyStationName(lat, lng);
-                if (nearbyStationName) {
-                    setSelectedStationName(nearbyStationName);
-                    return;
-                }
+                void getOfficialStationName(lat, lng).then((apiStationName) => {
+                    const options: Array<{ name: string; source: 'nearby' | 'api' | 'fallback' }> = [];
+                    const nearby = (nearbyStationName || '').trim();
+                    const api = (apiStationName || '').trim();
 
-                setSelectedStationName('정류장 명칭 불러오는 중...');
-                void getOfficialStationName(lat, lng).then((stationName) => {
-                    setSelectedStationName(stationName);
+                    if (isValidStationName(nearby)) {
+                        options.push({ name: nearby, source: 'nearby' });
+                    }
+                    if (isValidStationName(api) && !options.some((option) => option.name === api)) {
+                        options.push({ name: api, source: 'api' });
+                    }
+
+                    if (options.length > 0) {
+                        setSelectedStationNameOptions(options);
+                        setSelectedStationName(options[0].name);
+                        return;
+                    }
+
+                    setSelectedStationNameOptions([{ name: '정류장 정보', source: 'fallback' }]);
+                    setSelectedStationName('정류장 정보');
                 });
             });
         }
@@ -303,7 +450,7 @@ const MapPage = () => {
                 window.naver.maps.Event.removeListener(clickListener);
             }
         };
-    }, [isAddMode, user, showToast, getOfficialStationName, findNearbyStationName]);
+    }, [isAddMode, user, showToast, getOfficialStationName, findNearbyStationName, isValidStationName]);
 
     const handleAddShuttleFromSheet = async () => {
         if (!selectedStation) return;
@@ -316,6 +463,7 @@ const MapPage = () => {
         const stationName = selectedStation.stationName || await getOfficialStationName(selectedStation.lat, selectedStation.lng);
         setSelectedCoord({ lat: selectedStation.lat, lng: selectedStation.lng });
         setSelectedStationName(stationName);
+        setSelectedStationNameOptions([{ name: stationName, source: 'api' }]);
         setIsAddModalOpen(true);
     };
 
@@ -333,12 +481,15 @@ const MapPage = () => {
                     type: formData.type,
                     boardingTime: formData.boardingTime,
                     alightingTime: formData.alightingTime,
+                    destinationAddress: formData.destinationAddress,
+                    destinationX: formData.destinationX,
+                    destinationY: formData.destinationY,
                     congestion: formData.congestion,
                     congestionUpdatedAt: formData.congestionUpdatedAt,
                     addedBy: user?.uid || 'anonymous',
                     days: ['월', '화', '수', '목', '금']
                 },
-                selectedStationName
+                (formData.stationName || selectedStationName || '정류장 정보').trim()
             );
 
             showToast(result.message || '정류장 정보가 저장됐어요. 바로 지도에 반영할게요.', 'success');
@@ -396,6 +547,7 @@ const MapPage = () => {
                 lat={selectedCoord?.lat || 0}
                 lng={selectedCoord?.lng || 0}
                 stationName={selectedStationName}
+                stationNameOptions={selectedStationNameOptions}
                 onClose={() => setIsAddModalOpen(false)}
                 onSave={handleSaveShuttle}
             />
@@ -406,11 +558,13 @@ const MapPage = () => {
                     setIsDetailOpen(false);
                     setSelectedStation(null);
                     setSelectedMarkerStationId(null);
+                    clearRouteOverlays();
                 }}
                 stationId={selectedStation?.id} // ⭐️ 이 stationId가 정확히 넘어가고 있는지 확인!
                 stationName={selectedStation?.stationName || '정류장 정보'}
                 shuttles={selectedStation?.shuttles || []}
                 onAddShuttle={handleAddShuttleFromSheet}
+                onSelectShuttleRoute={handleSelectShuttleRoute}
             />
         </div>
     );

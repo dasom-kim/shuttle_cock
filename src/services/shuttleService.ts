@@ -20,6 +20,9 @@ export interface ShuttleData {
     type: 'work' | 'leave';
     boardingTime: string;
     alightingTime: string;
+    destinationAddress: string;
+    destinationX: number;
+    destinationY: number;
     congestion: string; // '여유' | '적당' | '부족' 등
     congestionUpdatedAt: any;
     days: string[];     // 운행 요일 (예: ['월', '화', '수', '목', '금'])

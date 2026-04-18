@@ -11,6 +11,9 @@ interface Shuttle {
     company: string;
     boardingTime?: string;
     alightingTime?: string;
+    destinationAddress?: string;
+    destinationX?: number;
+    destinationY?: number;
     time?: string;
     type: 'work' | 'leave';
     congestion: string;
@@ -25,11 +28,14 @@ interface StationDetailSheetProps {
     shuttles: Shuttle[];
     onClose: () => void;
     onAddShuttle: () => void;
+    onSelectShuttleRoute: (shuttle: Shuttle) => void;
 }
 
 const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
-                                                                   isOpen, stationId, stationName, shuttles, onClose, onAddShuttle
+                                                                   isOpen, stationId, stationName, shuttles, onClose, onAddShuttle, onSelectShuttleRoute
                                                                }) => {
+    const COLLAPSED_PEEK_HEIGHT = 38;
+    const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
     const { user } = useAuth();
     const { showToast } = useFeedback();
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -138,6 +144,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         'updated-old': '업데이트 느린순'
     } as const;
     const sortText = sortTextMap[sortMode];
+    const isCollapsed = sheetHeight !== null && sheetHeight <= COLLAPSED_PEEK_HEIGHT + 6;
 
     useEffect(() => {
         if (!isOpen) {
@@ -171,7 +178,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
     useEffect(() => {
         if (!isDraggingSheet) return;
 
-        const minHeight = 260;
+        const minHeight = COLLAPSED_PEEK_HEIGHT;
         const maxHeight = window.innerHeight;
 
         const handlePointerMove = (event: PointerEvent) => {
@@ -198,7 +205,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
             window.removeEventListener('pointerup', stopDragging);
             window.removeEventListener('pointercancel', stopDragging);
         };
-    }, [isDraggingSheet]);
+    }, [COLLAPSED_PEEK_HEIGHT, isDraggingSheet]);
 
     const handleStartDragSheet = (event: React.PointerEvent<HTMLElement>) => {
         if (!sheetRef.current) return;
@@ -289,7 +296,17 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                 )}
                 <div style={shuttleContentStyle}>
                     <div style={itemTopStyle}>
-                        <span style={shuttleTitleStyle}>{shuttle.name}</span>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                onSelectShuttleRoute(shuttle);
+                                setActivePanel('none');
+                                setSheetHeight(COLLAPSED_PEEK_HEIGHT);
+                            }}
+                            style={shuttleTitleButtonStyle}
+                        >
+                            {shuttle.name}
+                        </button>
                         <span style={typeBadgeStyle(shuttle.type)}>
                             {shuttle.type === 'work' ? '출근' : '퇴근'}
                         </span>
@@ -334,170 +351,174 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
             <div
                 ref={sheetRef}
                 onPointerDown={handleStartDragSheet}
-                style={sheetContentStyle(sheetHeight)}
+                style={sheetContentStyle(sheetHeight, isCollapsed)}
             >
                 <div
                     onPointerDown={handleStartDragSheet}
-                    style={handleStyle}
+                    style={{ ...handleStyle, marginBottom: isCollapsed ? 0 : 15 }}
                 ></div>
 
-                <div style={headerStyle}>
-                    <div style={headerTitleWrapStyle}>
-                        <h2 style={{ fontSize: '1.2rem', margin: 0 }}>📍 {stationName}</h2>
-                        {user && (
-                            <button onClick={onAddShuttle} style={addShuttleButtonStyle}>+ 셔틀 추가</button>
-                        )}
-                    </div>
-                    <button onClick={onClose} style={closeButtonStyle}>✕</button>
-                </div>
-
-                <div style={toolbarContainerStyle}>
-                    <div style={toolbarStyle}>
-                        <button
-                            onClick={openFilterPanel}
-                            style={filterDropdownStyle(activePanel === 'filter')}
-                        >
-                            <span>필터</span>
-                            {appliedFilterCount > 0 && <span style={filterCountBadgeStyle}>{appliedFilterCount}</span>}
-                        </button>
-                        <button
-                            onClick={() => setActivePanel((prev) => (prev === 'sort' ? 'none' : 'sort'))}
-                            style={sortDropdownStyle(activePanel === 'sort')}
-                        >
-                            <span>{sortText}</span>
-                            <span style={dropdownArrowStyle(activePanel === 'sort')}>▾</span>
-                        </button>
-                    </div>
-
-                    {activePanel === 'filter' && (
-                    <div style={filterDropdownPanelStyle}>
-                        <div style={controlItemStyle}>
-                            <label style={controlLabelStyle}>회사</label>
-                            <select
-                                value={draftCompanyFilter}
-                                onChange={(e) => setDraftCompanyFilter(e.target.value)}
-                                style={controlSelectStyle}
-                            >
-                                <option value="all">전체</option>
-                                {companies.map((company) => (
-                                    <option key={company} value={company}>{company}</option>
-                                ))}
-                            </select>
+                {!isCollapsed && (
+                    <>
+                        <div style={headerStyle}>
+                            <div style={headerTitleWrapStyle}>
+                                <h2 style={{ fontSize: isMobile ? '1.05rem' : '1.2rem', margin: 0, whiteSpace: 'nowrap' }}>📍 {stationName}</h2>
+                                {user && (
+                                    <button onClick={onAddShuttle} style={addShuttleButtonStyle(isMobile)}>+ 셔틀 추가</button>
+                                )}
+                            </div>
+                            <button onClick={onClose} style={closeButtonStyle}>✕</button>
                         </div>
-                        <div style={controlItemStyle}>
-                            <label style={controlLabelStyle}>운행 종류</label>
-                            <select
-                                value={draftTypeFilter}
-                                onChange={(e) => setDraftTypeFilter(e.target.value as 'all' | 'work' | 'leave')}
-                                style={controlSelectStyle}
-                            >
-                                <option value="all">전체</option>
-                                <option value="work">출근</option>
-                                <option value="leave">퇴근</option>
-                            </select>
-                        </div>
-                        <div style={controlItemStyle}>
-                            <label style={controlLabelStyle}>혼잡도</label>
-                            <select
-                                value={draftCongestionFilter}
-                                onChange={(e) => setDraftCongestionFilter(e.target.value as 'all' | '여유' | '보통' | '부족')}
-                                style={controlSelectStyle}
-                            >
-                                <option value="all">전체</option>
-                                <option value="여유">여유</option>
-                                <option value="보통">보통</option>
-                                <option value="부족">부족</option>
-                            </select>
-                        </div>
-                        <div style={panelActionStyle}>
-                            <button
-                                onClick={() => {
-                                    setDraftCompanyFilter('all');
-                                    setDraftTypeFilter('all');
-                                    setDraftCongestionFilter('all');
-                                }}
-                                style={resetButtonStyle}
-                            >
-                                필터 초기화
-                            </button>
-                            <button onClick={handleSaveFilter} style={saveFilterButtonStyle}>
-                                저장
-                            </button>
-                        </div>
-                    </div>
-                    )}
 
-                    {activePanel === 'sort' && (
-                    <div style={sortDropdownPanelStyle}>
-                        <button
-                            onClick={() => {
-                                setSortMode('time-asc');
-                                setActivePanel('none');
-                            }}
-                            style={sortChoiceStyle(sortMode === 'time-asc')}
-                        >
-                            시간 빠른순
-                        </button>
-                        <button
-                            onClick={() => {
-                                setSortMode('time-desc');
-                                setActivePanel('none');
-                            }}
-                            style={sortChoiceStyle(sortMode === 'time-desc')}
-                        >
-                            시간 느린순
-                        </button>
-                        <button
-                            onClick={() => {
-                                setSortMode('updated-recent');
-                                setActivePanel('none');
-                            }}
-                            style={sortChoiceStyle(sortMode === 'updated-recent')}
-                        >
-                            업데이트 빠른순
-                        </button>
-                        <button
-                            onClick={() => {
-                                setSortMode('updated-old');
-                                setActivePanel('none');
-                            }}
-                            style={sortChoiceStyle(sortMode === 'updated-old')}
-                        >
-                            업데이트 느린순
-                        </button>
-                    </div>
-                    )}
-                </div>
+                        <div style={toolbarContainerStyle}>
+                            <div style={toolbarStyle}>
+                                <button
+                                    onClick={openFilterPanel}
+                                    style={filterDropdownStyle(activePanel === 'filter', isMobile)}
+                                >
+                                    <span>필터</span>
+                                    {appliedFilterCount > 0 && <span style={filterCountBadgeStyle}>{appliedFilterCount}</span>}
+                                </button>
+                                <button
+                                    onClick={() => setActivePanel((prev) => (prev === 'sort' ? 'none' : 'sort'))}
+                                    style={sortDropdownStyle(activePanel === 'sort', isMobile)}
+                                >
+                                    <span>{sortText}</span>
+                                    <span style={dropdownArrowStyle(activePanel === 'sort')}>▾</span>
+                                </button>
+                            </div>
 
-                <div style={listContainerStyle}>
-                    <section style={sectionStyle}>
-                        <h3 style={sectionTitleStyle}>선택된 위치에서 운행하는 셔틀</h3>
-                        <div style={sectionListStyle}>
-                            {selectedLocationShuttles.map((shuttle) => renderShuttleItem(shuttle, 'selected'))}
-                            {selectedLocationShuttles.length === 0 && (
-                                <div style={emptyStateStyle}>현재 조건에 맞는 셔틀 정보가 없습니다.</div>
+                            {activePanel === 'filter' && (
+                            <div style={filterDropdownPanelStyle}>
+                                <div style={controlItemStyle}>
+                                    <label style={controlLabelStyle}>회사</label>
+                                    <select
+                                        value={draftCompanyFilter}
+                                        onChange={(e) => setDraftCompanyFilter(e.target.value)}
+                                        style={controlSelectStyle}
+                                    >
+                                        <option value="all">전체</option>
+                                        {companies.map((company) => (
+                                            <option key={company} value={company}>{company}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div style={controlItemStyle}>
+                                    <label style={controlLabelStyle}>운행 종류</label>
+                                    <select
+                                        value={draftTypeFilter}
+                                        onChange={(e) => setDraftTypeFilter(e.target.value as 'all' | 'work' | 'leave')}
+                                        style={controlSelectStyle}
+                                    >
+                                        <option value="all">전체</option>
+                                        <option value="work">출근</option>
+                                        <option value="leave">퇴근</option>
+                                    </select>
+                                </div>
+                                <div style={controlItemStyle}>
+                                    <label style={controlLabelStyle}>혼잡도</label>
+                                    <select
+                                        value={draftCongestionFilter}
+                                        onChange={(e) => setDraftCongestionFilter(e.target.value as 'all' | '여유' | '보통' | '부족')}
+                                        style={controlSelectStyle}
+                                    >
+                                        <option value="all">전체</option>
+                                        <option value="여유">여유</option>
+                                        <option value="보통">보통</option>
+                                        <option value="부족">부족</option>
+                                    </select>
+                                </div>
+                                <div style={panelActionStyle}>
+                                    <button
+                                        onClick={() => {
+                                            setDraftCompanyFilter('all');
+                                            setDraftTypeFilter('all');
+                                            setDraftCongestionFilter('all');
+                                        }}
+                                        style={resetButtonStyle(isMobile)}
+                                    >
+                                        필터 초기화
+                                    </button>
+                                    <button onClick={handleSaveFilter} style={saveFilterButtonStyle(isMobile)}>
+                                        저장
+                                    </button>
+                                </div>
+                            </div>
+                            )}
+
+                            {activePanel === 'sort' && (
+                            <div style={sortDropdownPanelStyle}>
+                                <button
+                                    onClick={() => {
+                                        setSortMode('time-asc');
+                                        setActivePanel('none');
+                                    }}
+                                    style={sortChoiceStyle(sortMode === 'time-asc', isMobile)}
+                                >
+                                    시간 빠른순
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setSortMode('time-desc');
+                                        setActivePanel('none');
+                                    }}
+                                    style={sortChoiceStyle(sortMode === 'time-desc', isMobile)}
+                                >
+                                    시간 느린순
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setSortMode('updated-recent');
+                                        setActivePanel('none');
+                                    }}
+                                    style={sortChoiceStyle(sortMode === 'updated-recent', isMobile)}
+                                >
+                                    업데이트 빠른순
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setSortMode('updated-old');
+                                        setActivePanel('none');
+                                    }}
+                                    style={sortChoiceStyle(sortMode === 'updated-old', isMobile)}
+                                >
+                                    업데이트 느린순
+                                </button>
+                            </div>
                             )}
                         </div>
-                    </section>
 
-                    <section style={sectionStyle}>
-                        <h3 style={sectionTitleStyle}>반경 200m 이내에서 운행하는 셔틀</h3>
-                        <div style={sectionListStyle}>
-                            {nearbyShuttles.map((shuttle) => renderShuttleItem(shuttle, 'nearby'))}
-                            {nearbyShuttles.length === 0 && (
-                                <div style={emptyStateStyle}>현재 조건에 맞는 셔틀 정보가 없습니다.</div>
-                            )}
+                        <div style={listContainerStyle}>
+                            <section style={sectionStyle}>
+                                <h3 style={sectionTitleStyle}>선택된 위치에서 운행하는 셔틀</h3>
+                                <div style={sectionListStyle}>
+                                    {selectedLocationShuttles.map((shuttle) => renderShuttleItem(shuttle, 'selected'))}
+                                    {selectedLocationShuttles.length === 0 && (
+                                        <div style={emptyStateStyle}>현재 조건에 맞는 셔틀 정보가 없습니다.</div>
+                                    )}
+                                </div>
+                            </section>
+
+                            <section style={sectionStyle}>
+                                <h3 style={sectionTitleStyle}>반경 200m 이내에서 운행하는 셔틀</h3>
+                                <div style={sectionListStyle}>
+                                    {nearbyShuttles.map((shuttle) => renderShuttleItem(shuttle, 'nearby'))}
+                                    {nearbyShuttles.length === 0 && (
+                                        <div style={emptyStateStyle}>현재 조건에 맞는 셔틀 정보가 없습니다.</div>
+                                    )}
+                                </div>
+                            </section>
                         </div>
-                    </section>
-                </div>
 
-                <EditRequestModal
-                    isOpen={isEditModalOpen}
-                    onClose={() => setIsEditModalOpen(false)}
-                    stationId={targetShuttle?.stationId || stationId}
-                    shuttle={targetShuttle}
-                    user={user}
-                />
+                        <EditRequestModal
+                            isOpen={isEditModalOpen}
+                            onClose={() => setIsEditModalOpen(false)}
+                            stationId={targetShuttle?.stationId || stationId}
+                            shuttle={targetShuttle}
+                            user={user}
+                        />
+                    </>
+                )}
             </div>
         </div>
     );
@@ -519,6 +540,7 @@ const congestionBadgeStyle = (status: string): React.CSSProperties => {
         border: 'none',
         fontSize: '0.85rem',
         fontWeight: 'bold',
+        whiteSpace: 'nowrap'
     };
 };
 
@@ -543,19 +565,19 @@ const favoriteButtonStyle = (isFavorite: boolean, disabled: boolean): React.CSSP
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.5 : 1
 });
-const rightAlignContainerStyle: React.CSSProperties = { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px' };
+const rightAlignContainerStyle: React.CSSProperties = { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'nowrap' };
 const infoRowStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' };
 const stationNameLabelStyle: React.CSSProperties = { fontSize: '0.9rem', color: '#4B5563' };
 const timestampStyle: React.CSSProperties = { fontSize: '0.8rem', color: '#9CA3AF' };
 const sheetOverlayStyle: React.CSSProperties = { position: 'fixed', bottom: 0, left: 0, width: '100%', height: 'auto', zIndex: 3000 };
-const sheetContentStyle = (height: number | null): React.CSSProperties => ({
+const sheetContentStyle = (height: number | null, isCollapsed: boolean): React.CSSProperties => ({
     backgroundColor: 'white',
     borderRadius: '20px 20px 0 0',
-    padding: '15px 20px 30px',
+    padding: isCollapsed ? '10px 14px 8px' : '15px 20px 30px',
     boxShadow: '0 -5px 20px rgba(0,0,0,0.1)',
     height: height ? `${height}px` : 'auto',
     maxHeight: '100vh',
-    overflowY: 'auto',
+    overflowY: isCollapsed ? 'hidden' : 'auto',
     transition: height ? 'none' : 'height 0.2s ease'
 });
 const handleStyle: React.CSSProperties = {
@@ -563,7 +585,7 @@ const handleStyle: React.CSSProperties = {
     height: '6px',
     backgroundColor: '#E5E7EB',
     borderRadius: '10px',
-    margin: '0 auto 15px',
+    margin: '0 auto',
     cursor: 'ns-resize',
     touchAction: 'none'
 };
@@ -571,19 +593,20 @@ const headerStyle: React.CSSProperties = { display: 'flex', justifyContent: 'spa
 const headerTitleWrapStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0 };
 const toolbarContainerStyle: React.CSSProperties = { position: 'relative', marginBottom: '10px' };
 const toolbarStyle: React.CSSProperties = { display: 'flex', gap: '8px' };
-const filterDropdownStyle = (active: boolean): React.CSSProperties => ({
+const filterDropdownStyle = (active: boolean, isMobile: boolean): React.CSSProperties => ({
     border: '1px solid #D1D5DB',
     borderRadius: '10px',
     backgroundColor: active ? '#EEF2FF' : '#FFFFFF',
     color: active ? '#4338CA' : '#374151',
-    padding: '9px 12px',
-    fontSize: '0.9rem',
+    padding: isMobile ? '8px 10px' : '9px 12px',
+    fontSize: isMobile ? '0.82rem' : '0.9rem',
     fontWeight: 700,
     cursor: 'pointer',
     display: 'inline-flex',
     alignItems: 'center',
     gap: '8px',
-    minHeight: '40px'
+    minHeight: isMobile ? '36px' : '40px',
+    whiteSpace: 'nowrap'
 });
 const filterCountBadgeStyle: React.CSSProperties = {
     width: '18px',
@@ -609,20 +632,21 @@ const dropdownArrowStyle = (active: boolean): React.CSSProperties => ({
     transformOrigin: '50% 50%',
     transition: 'transform 0.18s ease'
 });
-const sortDropdownStyle = (active: boolean): React.CSSProperties => ({
+const sortDropdownStyle = (active: boolean, isMobile: boolean): React.CSSProperties => ({
     border: 'none',
     borderRadius: '10px',
     backgroundColor: active ? '#EEF2FF' : 'transparent',
     color: active ? '#4338CA' : '#374151',
-    padding: '9px 12px',
-    fontSize: '0.9rem',
+    padding: isMobile ? '8px 10px' : '9px 12px',
+    fontSize: isMobile ? '0.82rem' : '0.9rem',
     fontWeight: 700,
     cursor: 'pointer',
-    minHeight: '40px',
+    minHeight: isMobile ? '36px' : '40px',
     marginLeft: 'auto',
     display: 'inline-flex',
     alignItems: 'center',
-    gap: '8px'
+    gap: '8px',
+    whiteSpace: 'nowrap'
 });
 const filterDropdownPanelStyle: React.CSSProperties = {
     display: 'grid',
@@ -653,26 +677,28 @@ const controlSelectStyle: React.CSSProperties = {
     outline: 'none'
 };
 const panelActionStyle: React.CSSProperties = { display: 'flex', alignItems: 'flex-end', gap: '8px' };
-const resetButtonStyle: React.CSSProperties = {
+const resetButtonStyle = (isMobile: boolean): React.CSSProperties => ({
     border: '1px solid #D1D5DB',
     borderRadius: '8px',
     backgroundColor: '#FFFFFF',
     color: '#4B5563',
-    padding: '8px 10px',
-    fontSize: '0.8rem',
+    padding: isMobile ? '7px 9px' : '8px 10px',
+    fontSize: isMobile ? '0.76rem' : '0.8rem',
     fontWeight: 600,
-    cursor: 'pointer'
-};
-const saveFilterButtonStyle: React.CSSProperties = {
+    cursor: 'pointer',
+    whiteSpace: 'nowrap'
+});
+const saveFilterButtonStyle = (isMobile: boolean): React.CSSProperties => ({
     border: 'none',
     borderRadius: '8px',
     backgroundColor: '#4F46E5',
     color: '#FFFFFF',
-    padding: '8px 12px',
-    fontSize: '0.82rem',
+    padding: isMobile ? '7px 10px' : '8px 12px',
+    fontSize: isMobile ? '0.78rem' : '0.82rem',
     fontWeight: 700,
-    cursor: 'pointer'
-};
+    cursor: 'pointer',
+    whiteSpace: 'nowrap'
+});
 const sortDropdownPanelStyle: React.CSSProperties = {
     display: 'grid',
     gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
@@ -688,27 +714,29 @@ const sortDropdownPanelStyle: React.CSSProperties = {
     boxShadow: '0 10px 20px rgba(15, 23, 42, 0.12)',
     zIndex: 20
 };
-const sortChoiceStyle = (active: boolean): React.CSSProperties => ({
+const sortChoiceStyle = (active: boolean, isMobile: boolean): React.CSSProperties => ({
     border: '1px solid #D1D5DB',
     borderRadius: '8px',
     backgroundColor: active ? '#EEF2FF' : '#FFFFFF',
     color: active ? '#4338CA' : '#4B5563',
-    padding: '8px 12px',
-    fontSize: '0.82rem',
+    padding: isMobile ? '7px 9px' : '8px 12px',
+    fontSize: isMobile ? '0.76rem' : '0.82rem',
     fontWeight: 700,
-    cursor: 'pointer'
+    cursor: 'pointer',
+    whiteSpace: 'nowrap'
 });
-const addShuttleButtonStyle: React.CSSProperties = {
+const addShuttleButtonStyle = (isMobile: boolean): React.CSSProperties => ({
     border: 'none',
     borderRadius: '999px',
     backgroundColor: '#EEF2FF',
     color: '#8B5CF6',
-    padding: '6px 10px',
-    fontSize: '0.78rem',
+    padding: isMobile ? '5px 8px' : '6px 10px',
+    fontSize: isMobile ? '0.72rem' : '0.78rem',
     fontWeight: 700,
     cursor: 'pointer',
-    flexShrink: 0
-};
+    flexShrink: 0,
+    whiteSpace: 'nowrap'
+});
 const closeButtonStyle: React.CSSProperties = { background: 'none', border: 'none', fontSize: '1.5rem', color: '#9CA3AF', cursor: 'pointer' };
 const listContainerStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '12px' };
 const sectionStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '8px' };
@@ -728,9 +756,18 @@ const shuttleItemStyle: React.CSSProperties = {
     alignItems: 'stretch'
 };
 const shuttleContentStyle: React.CSSProperties = { flex: 1, padding: '15px' };
-const shuttleTitleStyle: React.CSSProperties = { fontWeight: 'bold', color: '#1F2937' };
-const typeBadgeStyle = (type: string): React.CSSProperties => ({ fontSize: '0.75rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: type === 'work' ? '#DBEAFE' : '#FEF3C7', color: type === 'work' ? '#1E40AF' : '#92400E' });
-const timeStyle: React.CSSProperties = { fontSize: '0.9rem', color: '#6B7280', marginLeft: 'auto' };
+const shuttleTitleStyle: React.CSSProperties = { fontWeight: 'bold', color: '#1F2937', fontSize: '1rem' };
+const shuttleTitleButtonStyle: React.CSSProperties = {
+    ...shuttleTitleStyle,
+    border: 'none',
+    background: 'transparent',
+    padding: 0,
+    margin: 0,
+    cursor: 'pointer',
+    textAlign: 'left'
+};
+const typeBadgeStyle = (type: string): React.CSSProperties => ({ fontSize: '0.75rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: type === 'work' ? '#DBEAFE' : '#FEF3C7', color: type === 'work' ? '#1E40AF' : '#92400E', whiteSpace: 'nowrap' });
+const timeStyle: React.CSSProperties = { fontSize: '0.9rem', color: '#6B7280', marginLeft: 'auto', whiteSpace: 'nowrap' };
 const suspendedBadgeStyle: React.CSSProperties = { fontSize: '0.75rem', color: '#EF4444', marginTop: '5px', fontWeight: 'bold' };
 const emptyStateStyle: React.CSSProperties = { textAlign: 'center', color: '#9CA3AF', fontSize: '0.9rem', padding: '16px 0' };
 

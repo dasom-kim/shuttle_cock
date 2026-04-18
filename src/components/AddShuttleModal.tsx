@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useFeedback } from './feedback/FeedbackProvider';
+import { geocodeAddressNcloud, type GeocodeAddressResult } from '../services/geocodeService';
 
 interface AddShuttleModalProps {
     isOpen: boolean;
@@ -8,9 +9,21 @@ interface AddShuttleModalProps {
     lat: number;
     lng: number;
     stationName: string;
+    stationNameOptions?: Array<{
+        name: string;
+        source: 'nearby' | 'api' | 'fallback';
+    }>;
 }
 
-const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSave, lat, lng, stationName }) => {
+const AddShuttleModal: React.FC<AddShuttleModalProps> = ({
+    isOpen,
+    onClose,
+    onSave,
+    lat,
+    lng,
+    stationName,
+    stationNameOptions = []
+}) => {
     const { showToast } = useFeedback();
     const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
     const [shuttleName, setShuttleName] = useState('');
@@ -19,6 +32,17 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSa
     const [boardingTime, setBoardingTime] = useState('08:30');
     const [alightingTime, setAlightingTime] = useState('09:00');
     const [congestion, setCongestion] = useState('보통');
+    const [destinationQuery, setDestinationQuery] = useState('');
+    const [destinationOptions, setDestinationOptions] = useState<GeocodeAddressResult[]>([]);
+    const [selectedDestination, setSelectedDestination] = useState<GeocodeAddressResult | null>(null);
+    const [isDestinationDropdownOpen, setIsDestinationDropdownOpen] = useState(false);
+    const [isDestinationLoading, setIsDestinationLoading] = useState(false);
+    const [selectedStationName, setSelectedStationName] = useState(stationName);
+    const [isStationDropdownOpen, setIsStationDropdownOpen] = useState(false);
+    const [isCongestionDropdownOpen, setIsCongestionDropdownOpen] = useState(false);
+    const stationDropdownRef = useRef<HTMLDivElement | null>(null);
+    const congestionDropdownRef = useRef<HTMLDivElement | null>(null);
+    const destinationDropdownRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
         if (!isOpen) return;
@@ -29,7 +53,44 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSa
         setBoardingTime('08:30');
         setAlightingTime('09:00');
         setCongestion('보통');
+        setDestinationQuery('');
+        setDestinationOptions([]);
+        setSelectedDestination(null);
+        setIsDestinationDropdownOpen(false);
+        setIsDestinationLoading(false);
+        setSelectedStationName(stationName);
+        setIsStationDropdownOpen(false);
+        setIsCongestionDropdownOpen(false);
     }, [isOpen]);
+
+    useEffect(() => {
+        setSelectedStationName(stationName);
+    }, [stationName]);
+
+    useEffect(() => {
+        if (!isStationDropdownOpen && !isCongestionDropdownOpen && !isDestinationDropdownOpen) return;
+
+        const handleOutsideClick = (event: MouseEvent) => {
+            const targetNode = event.target as Node;
+            const clickedInsideStation = stationDropdownRef.current?.contains(targetNode);
+            const clickedInsideCongestion = congestionDropdownRef.current?.contains(targetNode);
+            const clickedInsideDestination = destinationDropdownRef.current?.contains(targetNode);
+            if (!clickedInsideStation) {
+                setIsStationDropdownOpen(false);
+            }
+            if (!clickedInsideCongestion) {
+                setIsCongestionDropdownOpen(false);
+            }
+            if (!clickedInsideDestination) {
+                setIsDestinationDropdownOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleOutsideClick);
+        return () => {
+            document.removeEventListener('mousedown', handleOutsideClick);
+        };
+    }, [isStationDropdownOpen, isCongestionDropdownOpen, isDestinationDropdownOpen]);
 
     if (!isOpen) return null;
 
@@ -42,9 +103,49 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSa
             showToast('어떤 회사의 셔틀인지 회사 이름도 함께 입력해 주세요', 'info');
             return;
         }
+        if (!selectedDestination) {
+            showToast(type === 'work' ? '도착지를 검색해서 선택해 주세요' : '출발지를 검색해서 선택해 주세요', 'info');
+            return;
+        }
         // type, boardingTime, alightingTime, congestion은 기본값이 설정되어 있으므로 별도 검사 불필요
 
-        onSave({ shuttleName, company, type, boardingTime, alightingTime, congestion, lat, lng });
+        onSave({
+            shuttleName,
+            company,
+            type,
+            boardingTime,
+            alightingTime,
+            congestion,
+            stationName: selectedStationName,
+            destinationAddress: selectedDestination.roadAddress || selectedDestination.jibunAddress,
+            destinationX: selectedDestination.x,
+            destinationY: selectedDestination.y,
+            lat,
+            lng
+        });
+    };
+
+    const handleSearchDestination = async () => {
+        const keyword = destinationQuery.trim();
+        if (!keyword) {
+            showToast('도착지 키워드를 입력해 주세요', 'info');
+            return;
+        }
+
+        try {
+            setIsDestinationLoading(true);
+            const results = await geocodeAddressNcloud(keyword);
+            setDestinationOptions(results);
+            setIsDestinationDropdownOpen(true);
+            if (!results.length) {
+                showToast('검색 결과가 없어요. 다른 키워드로 시도해 주세요.', 'info');
+            }
+        } catch (error) {
+            console.error('도착지 검색 실패:', error);
+            showToast('도착지 검색 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.', 'error');
+        } finally {
+            setIsDestinationLoading(false);
+        }
     };
 
     return (
@@ -54,12 +155,49 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSa
 
                 <div style={inputGroupStyle}>
                     <label>정류장 이름</label>
-                    <input
-                        type="text"
-                        value={stationName}
-                        disabled
-                        style={{ ...inputStyle, backgroundColor: '#F9FAFB', color: '#6B7280' }}
-                    />
+                    {stationNameOptions.length > 1 ? (
+                        <div ref={stationDropdownRef} style={stationDropdownWrapStyle}>
+                            <button
+                                type="button"
+                                onClick={() => setIsStationDropdownOpen((prev) => !prev)}
+                                style={stationDropdownButtonStyle}
+                            >
+                                <span style={stationDropdownValueStyle}>{selectedStationName}</span>
+                                <span style={stationDropdownRightStyle}>
+                                    {stationNameOptions.some((opt) => opt.name === selectedStationName && opt.source === 'nearby') && (
+                                        <span style={recommendedBadgeStyle}>추천</span>
+                                    )}
+                                    <span style={stationDropdownArrowStyle(isStationDropdownOpen)}>▾</span>
+                                </span>
+                            </button>
+
+                            {isStationDropdownOpen && (
+                                <div style={stationDropdownMenuStyle}>
+                                    {stationNameOptions.map((option) => (
+                                        <button
+                                            key={`${option.source}-${option.name}`}
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedStationName(option.name);
+                                                setIsStationDropdownOpen(false);
+                                            }}
+                                            style={stationDropdownOptionStyle(option.name === selectedStationName)}
+                                        >
+                                            <span style={stationDropdownOptionTextStyle}>{option.name}</span>
+                                            {option.source === 'nearby' && <span style={recommendedBadgeStyle}>추천</span>}
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        <input
+                            type="text"
+                            value={selectedStationName}
+                            disabled
+                            style={{ ...inputStyle, flex: 1, backgroundColor: '#F9FAFB', color: '#6B7280' }}
+                        />
+                    )}
                 </div>
 
                 <div style={inputGroupStyle}>
@@ -81,6 +219,90 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSa
                         onChange={(e) => setCompany(e.target.value)}
                         style={inputStyle}
                     />
+                </div>
+
+                <div style={inputGroupStyle}>
+                    <label>{type === 'work' ? '도착지 검색' : '출발지 검색'}</label>
+                    <div style={destinationSearchRowStyle}>
+                        <input
+                            type="text"
+                            placeholder={type === 'work' ? '예: 네이버 1784' : '예: 판교역 1번 출구'}
+                            value={destinationQuery}
+                            onChange={(e) => setDestinationQuery(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                    e.preventDefault();
+                                    void handleSearchDestination();
+                                }
+                            }}
+                            style={{ ...inputStyle, flex: 1 }}
+                        />
+                        <button
+                            type="button"
+                            onClick={() => void handleSearchDestination()}
+                            style={destinationSearchButtonStyle}
+                            disabled={isDestinationLoading}
+                        >
+                            {isDestinationLoading ? '검색 중...' : '검색'}
+                        </button>
+                    </div>
+
+                    <div ref={destinationDropdownRef} style={stationDropdownWrapStyle}>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (!destinationOptions.length) return;
+                                setIsDestinationDropdownOpen((prev) => !prev);
+                            }}
+                            style={{
+                                ...stationDropdownButtonStyle,
+                                cursor: destinationOptions.length ? 'pointer' : 'default',
+                                color: selectedDestination ? '#111827' : '#6B7280'
+                            }}
+                        >
+                            <span style={stationDropdownValueStyle}>
+                                {selectedDestination
+                                    ? (selectedDestination.roadAddress || selectedDestination.jibunAddress)
+                                    : (type === 'work'
+                                        ? '도로명 검색 후 도착지를 선택해 주세요'
+                                        : '도로명 검색 후 출발지를 선택해 주세요')}
+                            </span>
+                            {destinationOptions.length > 0 && (
+                                <span style={stationDropdownArrowStyle(isDestinationDropdownOpen)}>▾</span>
+                            )}
+                        </button>
+
+                        {isDestinationDropdownOpen && destinationOptions.length > 0 && (
+                            <div style={{ ...stationDropdownMenuStyle, maxHeight: '240px', overflowY: 'auto' }}>
+                                {destinationOptions.map((option) => {
+                                    const label = option.roadAddress || option.jibunAddress;
+                                    const detail = option.roadAddress && option.jibunAddress && option.roadAddress !== option.jibunAddress
+                                        ? option.jibunAddress
+                                        : '';
+
+                                    return (
+                                        <button
+                                            key={`${option.x}-${option.y}-${label}`}
+                                            type="button"
+                                            onClick={() => {
+                                                setSelectedDestination(option);
+                                                setIsDestinationDropdownOpen(false);
+                                            }}
+                                            style={stationDropdownOptionStyle(
+                                                selectedDestination?.x === option.x &&
+                                                selectedDestination?.y === option.y
+                                            )}
+                                        >
+                                            <span style={{ ...stationDropdownOptionTextStyle, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+                                                <span style={{ fontWeight: 600 }}>{label}</span>
+                                                {detail && <span style={{ fontSize: '0.78rem', color: '#6B7280' }}>{detail}</span>}
+                                            </span>
+                                        </button>
+                                    );
+                                })}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <div style={inputGroupStyle}>
@@ -126,15 +348,34 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSa
 
                 <div style={inputGroupStyle}>
                     <label>평균 혼잡도</label>
-                    <select
-                        value={congestion}
-                        onChange={(e) => setCongestion(e.target.value)}
-                        style={inputStyle}
-                    >
-                        <option value="여유">여유</option>
-                        <option value="보통">보통</option>
-                        <option value="부족">부족</option>
-                    </select>
+                    <div ref={congestionDropdownRef} style={stationDropdownWrapStyle}>
+                        <button
+                            type="button"
+                            onClick={() => setIsCongestionDropdownOpen((prev) => !prev)}
+                            style={stationDropdownButtonStyle}
+                        >
+                            <span style={stationDropdownValueStyle}>{congestion}</span>
+                            <span style={stationDropdownArrowStyle(isCongestionDropdownOpen)}>▾</span>
+                        </button>
+
+                        {isCongestionDropdownOpen && (
+                            <div style={{ ...stationDropdownMenuStyle, top: 'auto', bottom: 'calc(100% + 6px)' }}>
+                                {['여유', '보통', '부족'].map((option) => (
+                                    <button
+                                        key={option}
+                                        type="button"
+                                        onClick={() => {
+                                            setCongestion(option);
+                                            setIsCongestionDropdownOpen(false);
+                                        }}
+                                        style={stationDropdownOptionStyle(option === congestion)}
+                                    >
+                                        <span style={stationDropdownOptionTextStyle}>{option}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
                 <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
@@ -170,12 +411,95 @@ const modalContentStyle = (isMobile: boolean): React.CSSProperties => ({
     borderRadius: isMobile ? '0' : '16px',
     width: isMobile ? '100%' : 'min(420px, 100%)',
     height: isMobile ? '100%' : 'auto',
-    maxHeight: isMobile ? '100vh' : 'calc(100vh - 32px)',
+    minHeight: isMobile ? '100%' : 'min(620px, calc(100vh - 32px))',
+    maxHeight: isMobile ? '100vh' : 'calc(100vh - 16px)',
     overflowY: 'auto',
     boxSizing: 'border-box'
 });
 const inputGroupStyle: React.CSSProperties = { marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '5px' };
 const inputStyle: React.CSSProperties = { padding: '10px', borderRadius: '8px', border: '1px solid #D1D5DB' };
+const destinationSearchRowStyle: React.CSSProperties = { display: 'flex', gap: '8px' };
+const destinationSearchButtonStyle: React.CSSProperties = {
+    border: 'none',
+    borderRadius: '8px',
+    backgroundColor: '#8B5CF6',
+    color: '#FFFFFF',
+    padding: '0 12px',
+    fontSize: '0.85rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap'
+};
+const stationDropdownWrapStyle: React.CSSProperties = { position: 'relative' };
+const stationDropdownButtonStyle: React.CSSProperties = {
+    ...inputStyle,
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    cursor: 'pointer',
+    textAlign: 'left',
+    gap: '10px'
+};
+const stationDropdownValueStyle: React.CSSProperties = {
+    color: '#111827',
+    fontSize: '0.95rem',
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
+};
+const stationDropdownRightStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: '8px', flexShrink: 0 };
+const stationDropdownArrowStyle = (open: boolean): React.CSSProperties => ({
+    display: 'inline-flex',
+    width: '14px',
+    justifyContent: 'center',
+    color: '#6B7280',
+    transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+    transition: 'transform 0.18s ease',
+    marginRight: '2px'
+});
+const stationDropdownMenuStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: 'calc(100% + 6px)',
+    left: 0,
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    border: '1px solid #E5E7EB',
+    borderRadius: '10px',
+    boxShadow: '0 10px 20px rgba(15, 23, 42, 0.12)',
+    zIndex: 30,
+    overflow: 'hidden'
+};
+const stationDropdownOptionStyle = (selected: boolean): React.CSSProperties => ({
+    width: '100%',
+    border: 'none',
+    backgroundColor: selected ? '#EEF2FF' : '#FFFFFF',
+    color: selected ? '#4338CA' : '#111827',
+    padding: '10px 12px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '8px',
+    textAlign: 'left'
+});
+const stationDropdownOptionTextStyle: React.CSSProperties = {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
+};
+const recommendedBadgeStyle: React.CSSProperties = {
+    border: 'none',
+    borderRadius: '999px',
+    backgroundColor: '#EEF2FF',
+    color: '#8B5CF6',
+    padding: '4px 8px',
+    fontSize: '0.72rem',
+    fontWeight: 700,
+    lineHeight: 1
+};
 const buttonGroupStyle: React.CSSProperties = { display: 'flex', gap: '10px' };
 const timeGridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' };
 const timeCellStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '5px' };

@@ -51,6 +51,18 @@ export default defineConfig(({ mode }) => {
               proxyReq.setHeader('x-ncp-apigw-api-key', key);
             });
           }
+        },
+        '/api/naver-geocode': {
+          target: 'https://maps.apigw.ntruss.com',
+          changeOrigin: true,
+          secure: true,
+          rewrite: (path) => path.replace(/^\/api\/naver-geocode/, '/map-geocode/v2/geocode'),
+          configure: (proxy) => {
+            proxy.on('proxyReq', (proxyReq) => {
+              proxyReq.setHeader('x-ncp-apigw-api-key-id', keyId);
+              proxyReq.setHeader('x-ncp-apigw-api-key', key);
+            });
+          }
         }
       }
     }
