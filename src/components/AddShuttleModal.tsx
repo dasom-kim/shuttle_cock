@@ -41,7 +41,7 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSa
                 <h3 style={{ color: '#8B5CF6', marginBottom: '20px' }}>🚌 셔틀 정보 등록</h3>
 
                 <div style={inputGroupStyle}>
-                    <label>정류장 명칭 (네이버 기준)</label>
+                    <label>정류장 명칭 (기존 정류장 우선, 없으면 네이버 기준)</label>
                     <input
                         type="text"
                         value={stationName}

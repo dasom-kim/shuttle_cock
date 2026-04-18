@@ -8,6 +8,9 @@ import { saveShuttleInfo, fetchAllStations } from '../services/shuttleService';
 import StationDetailSheet from "../components/StationDetailSheet"; // 저장 서비스 임포트
 import { useFeedback } from '../components/feedback/FeedbackProvider';
 import { reverseGeocodeNcloud } from '../services/geocodeService';
+import { getDistance } from '../utils/mapUtils';
+
+const STATION_MATCH_RADIUS_METERS = 200;
 
 
 // 커스텀 마커 아이콘 생성 함수 (활성화 여부에 따라 색상 반환)
@@ -53,6 +56,24 @@ const MapPage = () => {
             return '정류장 정보';
         }
     }, []);
+
+    const findNearbyStationName = useCallback((lat: number, lng: number) => {
+        let nearestStationName = '';
+        let nearestDistance = Infinity;
+
+        stations.forEach((station) => {
+            const stationName = (station.stationName || '').trim();
+            if (!stationName) return;
+
+            const distance = getDistance(lat, lng, station.lat, station.lng);
+            if (distance <= STATION_MATCH_RADIUS_METERS && distance < nearestDistance) {
+                nearestStationName = stationName;
+                nearestDistance = distance;
+            }
+        });
+
+        return nearestStationName;
+    }, [stations]);
 
     /**
      * ✨ Firestore에서 최신 데이터를 가져와 상태를 업데이트하는 함수
@@ -175,9 +196,15 @@ const MapPage = () => {
                     lat,
                     lng
                 });
-                setSelectedStationName('정류장 명칭 불러오는 중...');
                 setIsAddModalOpen(true);
 
+                const nearbyStationName = findNearbyStationName(lat, lng);
+                if (nearbyStationName) {
+                    setSelectedStationName(nearbyStationName);
+                    return;
+                }
+
+                setSelectedStationName('정류장 명칭 불러오는 중...');
                 void getOfficialStationName(lat, lng).then((stationName) => {
                     setSelectedStationName(stationName);
                 });
@@ -189,7 +216,7 @@ const MapPage = () => {
                 window.naver.maps.Event.removeListener(clickListener);
             }
         };
-    }, [isAddMode, user, showToast, getOfficialStationName]);
+    }, [isAddMode, user, showToast, getOfficialStationName, findNearbyStationName]);
 
     const handleAddShuttleFromSheet = async () => {
         if (!selectedStation) return;

@@ -2,6 +2,8 @@ import { db } from './firebase';
 import { serverTimestamp, collection, addDoc, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { getDistance } from '../utils/mapUtils';
 
+const STATION_MATCH_RADIUS_METERS = 200;
+
 export interface ShuttleData {
     name: string;
     company: string;
@@ -15,7 +17,7 @@ export interface ShuttleData {
 }
 
 /**
- * 셔틀 정보를 Firestore에 저장 (10m 이내 중복 체크 포함)
+ * 셔틀 정보를 Firestore에 저장 (200m 이내 중복 체크 포함)
  */
 export const saveShuttleInfo = async (lat: number, lng: number, shuttle: ShuttleData, stationName: string) => {
     try {
@@ -24,14 +26,16 @@ export const saveShuttleInfo = async (lat: number, lng: number, shuttle: Shuttle
 
         let targetStationId = "";
         let targetStationName = "";
+        let nearestDistance = Infinity;
 
-        // 1. 10m 이내 기존 정류장이 있는지 전수 조사
+        // 1. 200m 이내 기존 정류장이 있는지 전수 조사 (최근접 정류장 우선)
         querySnapshot.forEach((stationDoc) => {
             const data = stationDoc.data();
             const distance = getDistance(lat, lng, data.lat, data.lng);
-            if (distance <= 10) {
+            if (distance <= STATION_MATCH_RADIUS_METERS && distance < nearestDistance) {
                 targetStationId = stationDoc.id;
                 targetStationName = data.stationName || "";
+                nearestDistance = distance;
             }
         });
 
