@@ -1,25 +1,33 @@
 import React, { useState } from 'react';
 import { type User } from 'firebase/auth'; // Vite 8/TS 최신 규칙 준수
 import {auth} from "../firebase.ts";
+import { useFeedback } from './feedback/FeedbackProvider';
 
 interface FloatingMenuProps {
     user: User | null;         // 현재 로그인한 유저 정보
-    isAddMode: boolean;
     isRankingOpen: boolean;
     isFavOpen: boolean;
-    onToggleAddMode: () => void;
     onToggleRanking: () => void;
     onToggleFav: () => void;
     onOpenLogin: () => void;
 }
 
 const FloatingMenu: React.FC<FloatingMenuProps> = ({
-                                                       user, isAddMode, isRankingOpen, isFavOpen,
-                                                       onToggleAddMode, onToggleRanking, onToggleFav, onOpenLogin
+                                                       user, isRankingOpen, isFavOpen,
+                                                       onToggleRanking, onToggleFav, onOpenLogin
                                                    }) => {
     const [isOpen, setIsOpen] = useState(false);
-    const handleLogout = () => {
-        if (window.confirm("로그아웃 하시겠습니까?")) {
+    const { showToast, showConfirm } = useFeedback();
+
+    const handleLogout = async () => {
+        const isConfirmed = await showConfirm({
+            title: '로그아웃',
+            message: '정말 로그아웃하시겠어요?',
+            confirmText: '로그아웃',
+            cancelText: '계속 이용'
+        });
+
+        if (isConfirmed) {
             auth.signOut();
             setIsOpen(false);
         }
@@ -27,7 +35,6 @@ const FloatingMenu: React.FC<FloatingMenuProps> = ({
     const toggleMenu = () => setIsOpen(!isOpen);
     // ✨ 현재 어떤 모드가 활성화되어 있는지 확인하는 로직
     const getActiveMode = () => {
-        if (isAddMode) return { icon: '📍', label: '추가 중', color: '#8B5CF6', bgColor: '#EEF2FF', toggle: onToggleAddMode };
         if (isRankingOpen) return { icon: '🏆', label: '랭킹 중', color: '#F59E0B', bgColor: '#FEF3C7', toggle: onToggleRanking };
         if (isFavOpen) return { icon: '⭐', label: '관심 중', color: '#0284C7', bgColor: '#E0F2FE', toggle: onToggleFav };
         return null;
@@ -46,33 +53,29 @@ const FloatingMenu: React.FC<FloatingMenuProps> = ({
                         <button onClick={() => { onOpenLogin(); setIsOpen(false); }} style={{ ...menuItemStyle, color: '#8B5CF6' }}>🔑 로그인</button>
                     )}
                     <button
-                        onClick={() => { onToggleRanking(); setIsOpen(false); }}
-                        style={{ ...menuItemStyle, color: isRankingOpen ? '#8B5CF6' : '#4B5563' }}
+                        onClick={() => {
+                            if (!user) {
+                                showToast("로그인 후 이용해 주세요.", 'info');
+                            } else {
+                                onToggleRanking();
+                            }
+                        }}
+                        style={user ? { ...menuItemStyle, color: isRankingOpen ? '#8B5CF6' : '#4B5563' } : disabledMenuItemStyle}
                     >
-                        🏆 랭킹
-                    </button>
-
-                    <button
-                        onClick={() => { onToggleFav(); setIsOpen(false); }}
-                        style={{ ...menuItemStyle, color: isFavOpen ? '#8B5CF6' : '#4B5563' }}
-                    >
-                        ⭐ 즐겨찾기
+                        {user ? '🏆 랭킹' : '🔒 랭킹'}
                     </button>
 
                     <button
                         onClick={() => {
-                            // 로그인 유저만 추가 모드 진입 가능하게 할 경우
                             if (!user) {
-                                alert("로그인이 필요한 서비스입니다.");
-                                onOpenLogin();
+                                showToast("로그인 후 이용해 주세요.", 'info');
                             } else {
-                                onToggleAddMode();
+                                onToggleFav();
                             }
-                            setIsOpen(false);
                         }}
-                        style={{ ...menuItemStyle, color: isAddMode ? '#8B5CF6' : '#4B5563' }}
+                        style={user ? { ...menuItemStyle, color: isFavOpen ? '#8B5CF6' : '#4B5563' } : disabledMenuItemStyle}
                     >
-                        ➕ 정류장 추가
+                        {user ? '⭐ 즐겨찾기' : '🔒 즐겨찾기'}
                     </button>
                 </div>
             )}
@@ -128,6 +131,7 @@ const menuItemStyle: React.CSSProperties = {
     cursor: 'pointer',
     whiteSpace: 'nowrap'
 };
+const disabledMenuItemStyle: React.CSSProperties = { ...menuItemStyle, color: '#9CA3AF', backgroundColor: '#F9FAFB', border: '1px solid #E5E7EB' };
 
 const mainButtonStyle = (isActive: boolean): React.CSSProperties => ({
     width: '60px',

@@ -1,13 +1,14 @@
 import { db } from './firebase';
-import { doc, updateDoc, serverTimestamp, collection, addDoc, getDocs } from 'firebase/firestore';
+import { serverTimestamp, collection, addDoc, getDocs, doc, updateDoc } from 'firebase/firestore';
 import { getDistance } from '../utils/mapUtils';
 
 export interface ShuttleData {
     name: string;
     company: string;
     type: 'work' | 'leave';
-    time: string;
-    congestion: string; // '여유' | '적당' | '부족' | '만차' 등
+    boardingTime: string;
+    alightingTime: string;
+    congestion: string; // '여유' | '적당' | '부족' 등
     congestionUpdatedAt: any;
     days: string[];     // 운행 요일 (예: ['월', '화', '수', '목', '금'])
     addedBy: string;    // 등록한 유저의 UID
@@ -16,12 +17,13 @@ export interface ShuttleData {
 /**
  * 셔틀 정보를 Firestore에 저장 (10m 이내 중복 체크 포함)
  */
-export const saveShuttleInfo = async (lat: number, lng: number, shuttle: ShuttleData) => {
+export const saveShuttleInfo = async (lat: number, lng: number, shuttle: ShuttleData, stationName: string) => {
     try {
         const stationsRef = collection(db, 'stations');
         const querySnapshot = await getDocs(stationsRef);
 
         let targetStationId = "";
+        let targetStationName = "";
 
         // 1. 10m 이내 기존 정류장이 있는지 전수 조사
         querySnapshot.forEach((stationDoc) => {
@@ -29,6 +31,7 @@ export const saveShuttleInfo = async (lat: number, lng: number, shuttle: Shuttle
             const distance = getDistance(lat, lng, data.lat, data.lng);
             if (distance <= 10) {
                 targetStationId = stationDoc.id;
+                targetStationName = data.stationName || "";
             }
         });
 
@@ -40,13 +43,27 @@ export const saveShuttleInfo = async (lat: number, lng: number, shuttle: Shuttle
         };
 
         if (targetStationId) {
+            if (!targetStationName && stationName) {
+                const stationRef = doc(db, 'stations', targetStationId);
+                await updateDoc(stationRef, {
+                    stationName,
+                    updatedAt: serverTimestamp()
+                });
+            }
+
             // 2-A. 기존 정류장이 있다면 'shuttles' 서브 컬렉션에 추가
             const shuttleSubColRef = collection(db, 'stations', targetStationId, 'shuttles');
             await addDoc(shuttleSubColRef, finalData);
             return { success: true, message: "기존 정류장에 새로운 셔틀 정보가 추가되었습니다." };
         } else {
             // 2-B. 새로운 정류장이라면 새 문서 생성 후 'shuttles' 추가
-            const newStationDocRef = await addDoc(stationsRef, finalData);
+            const newStationDocRef = await addDoc(stationsRef, {
+                lat,
+                lng,
+                stationName,
+                createdAt: serverTimestamp(),
+                updatedAt: serverTimestamp()
+            });
 
             const shuttleSubColRef = collection(db, 'stations', newStationDocRef.id, 'shuttles');
             await addDoc(shuttleSubColRef, finalData);
@@ -76,6 +93,7 @@ export const fetchAllStations = async () => {
 
             const shuttles = shuttleSnapshot.docs.map(doc => ({
                 id: doc.id,
+                stationId,
                 ...doc.data()
             }));
 
@@ -92,6 +110,7 @@ export const fetchAllStations = async () => {
                 id: stationId,
                 lat: station.lat,
                 lng: station.lng,
+                stationName: station.stationName || '',
                 type: markerType, // MapPage에서 마커 필터링할 때 사용할 타입
                 shuttles: shuttles // 셔틀 상세 정보 배열
             });
@@ -101,26 +120,6 @@ export const fetchAllStations = async () => {
     } catch (error) {
         console.error("데이터 조회 실패:", error);
         throw error; // 에러를 던져서 UI 단에서 처리할 수 있게 함
-    }
-};
-
-/**
- * ✨ 혼잡도 간편 업데이트 함수
- */
-export const updateShuttleCongestion = async (stationId: string, shuttleId: string, newCongestion: string) => {
-    try {
-        // stations/{stationId}/shuttles/{shuttleId} 문서 참조
-        const shuttleRef = doc(db, 'stations', stationId, 'shuttles', shuttleId);
-
-        await updateDoc(shuttleRef, {
-            congestion: newCongestion,
-            congestionUpdatedAt: serverTimestamp() // ✨ 현재 서버 시간으로 기록
-        });
-
-        return { success: true };
-    } catch (error) {
-        console.error("혼잡도 업데이트 실패:", error);
-        throw error;
     }
 };
 

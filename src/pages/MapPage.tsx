@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useAuth } from '../hooks/useAuth';
 import Toggle from '../components/Toggle';
 import FloatingMenu from '../components/FloatingMenu';
@@ -6,6 +6,8 @@ import LoginModal from '../components/LoginModal';
 import AddShuttleModal from '../components/AddShuttleModal'; // 모달 임포트
 import { saveShuttleInfo, fetchAllStations } from '../services/shuttleService';
 import StationDetailSheet from "../components/StationDetailSheet"; // 저장 서비스 임포트
+import { useFeedback } from '../components/feedback/FeedbackProvider';
+import { reverseGeocodeNcloud } from '../services/geocodeService';
 
 
 // 커스텀 마커 아이콘 생성 함수 (활성화 여부에 따라 색상 반환)
@@ -28,17 +30,29 @@ const getMarkerIcon = (isActive: boolean) => {
 
 const MapPage = () => {
     const { user } = useAuth();
+    const { showToast } = useFeedback();
     const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
     const [isAddMode, setIsAddMode] = useState(false);
     const [filter, setFilter] = useState({ go: true, leave: false });
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [selectedCoord, setSelectedCoord] = useState<{ lat: number; lng: number } | null>(null);
+    const [selectedStationName, setSelectedStationName] = useState('');
     const [stations, setStations] = useState<any[]>([]);
     const [selectedStation, setSelectedStation] = useState<any>(null);
     const [isDetailOpen, setIsDetailOpen] = useState(false);
 
     const mapRef = useRef<naver.maps.Map | null>(null);
     const markersRef = useRef<naver.maps.Marker[]>([]);
+    const ignoreNextMapClickRef = useRef(false);
+
+    const getOfficialStationName = useCallback(async (lat: number, lng: number) => {
+        try {
+            return await reverseGeocodeNcloud(lat, lng);
+        } catch (error) {
+            console.error('역지오코딩 실패:', error);
+            return '정류장 정보';
+        }
+    }, []);
 
     /**
      * ✨ Firestore에서 최신 데이터를 가져와 상태를 업데이트하는 함수
@@ -103,15 +117,42 @@ const MapPage = () => {
             });
 
             // ✨ 마커 클릭 이벤트 추가
-            window.naver.maps.Event.addListener(marker, 'click', () => {
-                setSelectedStation(station);
+            window.naver.maps.Event.addListener(marker, 'click', async () => {
+                ignoreNextMapClickRef.current = true;
+                const stationName = station.stationName || await getOfficialStationName(station.lat, station.lng);
+                const sameNamedStations = stations.filter((s: any) => (s.stationName || '') === stationName);
+                const mergedShuttles = sameNamedStations.flatMap((s: any) => s.shuttles || []);
+
+                setSelectedStation({
+                    ...station,
+                    stationName,
+                    shuttles: mergedShuttles
+                });
                 setIsDetailOpen(true);
             });
 
             marker.set('stationType', station.type);
             markersRef.current.push(marker);
         });
-    }, [stations, filter]); // stations나 filter가 바뀔 때마다 실행
+    }, [stations, filter, getOfficialStationName]); // stations나 filter가 바뀔 때마다 실행
+
+    // 일반 지도 영역 클릭 시(마커 제외) 상세 바텀시트 닫기
+    useEffect(() => {
+        if (!mapRef.current || isAddMode) return;
+
+        const listener = window.naver.maps.Event.addListener(mapRef.current, 'click', () => {
+            if (ignoreNextMapClickRef.current) {
+                ignoreNextMapClickRef.current = false;
+                return;
+            }
+            setIsDetailOpen(false);
+            setSelectedStation(null);
+        });
+
+        return () => {
+            window.naver.maps.Event.removeListener(listener);
+        };
+    }, [isAddMode]);
 
     // 지도 클릭 이벤트 리스너
     useEffect(() => {
@@ -122,17 +163,24 @@ const MapPage = () => {
         if (isAddMode) {
             clickListener = window.naver.maps.Event.addListener(mapRef.current, 'click', (e: naver.maps.PointerEvent) => {
                 if (!user) {
-                    alert("정류장 추가는 로그인 후 이용할 수 있습니다.");
+                    showToast("정류장 추가는 로그인 후 이용할 수 있어요", 'info');
                     setIsLoginModalOpen(true);
                     return;
                 }
 
                 // 클릭한 좌표 저장 및 모달 열기
+                const lat = (e.coord as naver.maps.LatLng).lat();
+                const lng = (e.coord as naver.maps.LatLng).lng();
                 setSelectedCoord({
-                    lat: (e.coord as naver.maps.LatLng).lat(),
-                    lng: (e.coord as naver.maps.LatLng).lng()
+                    lat,
+                    lng
                 });
+                setSelectedStationName('정류장 명칭 불러오는 중...');
                 setIsAddModalOpen(true);
+
+                void getOfficialStationName(lat, lng).then((stationName) => {
+                    setSelectedStationName(stationName);
+                });
             });
         }
 
@@ -141,7 +189,21 @@ const MapPage = () => {
                 window.naver.maps.Event.removeListener(clickListener);
             }
         };
-    }, [isAddMode, user]);
+    }, [isAddMode, user, showToast, getOfficialStationName]);
+
+    const handleAddShuttleFromSheet = async () => {
+        if (!selectedStation) return;
+        if (!user) {
+            showToast("정류장 추가는 로그인 후 이용할 수 있어요", 'info');
+            setIsLoginModalOpen(true);
+            return;
+        }
+
+        const stationName = selectedStation.stationName || await getOfficialStationName(selectedStation.lat, selectedStation.lng);
+        setSelectedCoord({ lat: selectedStation.lat, lng: selectedStation.lng });
+        setSelectedStationName(stationName);
+        setIsAddModalOpen(true);
+    };
 
     // 셔틀 정보 저장 핸들러
     const handleSaveShuttle = async (formData: any) => {
@@ -150,19 +212,22 @@ const MapPage = () => {
         try {
             const result = await saveShuttleInfo(
                 selectedCoord.lat,
-                selectedCoord.lng,
-                {
-                    name: formData.stationName,
+                    selectedCoord.lng,
+                    {
+                    name: formData.shuttleName.trim(),
                     company: formData.company,
                     type: formData.type,
-                    time: formData.time,
+                    boardingTime: formData.boardingTime,
+                    alightingTime: formData.alightingTime,
                     congestion: formData.congestion,
                     congestionUpdatedAt: formData.congestionUpdatedAt,
                     addedBy: user?.uid || 'anonymous',
                     days: ['월', '화', '수', '목', '금']
-                });
+                },
+                selectedStationName
+            );
 
-            alert(result.message);
+            showToast(result.message || '정류장 정보가 저장됐어요. 바로 지도에 반영할게요.', 'success');
             setIsAddModalOpen(false);
             setIsAddMode(false); // 저장 후 추가 모드 해제
 
@@ -171,7 +236,7 @@ const MapPage = () => {
             setStations(updatedData);
         } catch (error) {
             console.error("저장 실패:", error);
-            alert("정보 저장 중 오류가 발생했습니다.");
+            showToast("저장 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.", 'error');
         }
     };
 
@@ -194,8 +259,6 @@ const MapPage = () => {
 
             <FloatingMenu
                 user={user}
-                isAddMode={isAddMode}
-                onToggleAddMode={() => setIsAddMode(!isAddMode)}
                 onOpenLogin={() => setIsLoginModalOpen(true)}
                 isRankingOpen={false}
                 isFavOpen={false}
@@ -203,12 +266,28 @@ const MapPage = () => {
                 onToggleFav={() => {}}
             />
 
+            <button
+                onClick={() => {
+                    if (!user) {
+                        showToast("로그인 후 이용해 주세요.", 'info');
+                        setIsLoginModalOpen(true);
+                        return;
+                    }
+                    setIsAddMode((prev) => !prev);
+                }}
+                style={addStationTopButtonStyle(isAddMode)}
+            >
+                <span style={{ marginRight: '6px' }}>{user ? '➕' : '🔒'}</span>
+                {isAddMode ? '추가 모드 종료' : '정류장 추가'}
+            </button>
+
             <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
 
             <AddShuttleModal
                 isOpen={isAddModalOpen}
                 lat={selectedCoord?.lat || 0}
                 lng={selectedCoord?.lng || 0}
+                stationName={selectedStationName}
                 onClose={() => setIsAddModalOpen(false)}
                 onSave={handleSaveShuttle}
             />
@@ -217,12 +296,28 @@ const MapPage = () => {
                 isOpen={isDetailOpen}
                 onClose={() => setIsDetailOpen(false)}
                 stationId={selectedStation?.id} // ⭐️ 이 stationId가 정확히 넘어가고 있는지 확인!
-                stationName={selectedStation?.shuttles[0]?.name || '정류장 정보'}
+                stationName={selectedStation?.stationName || '정류장 정보'}
                 shuttles={selectedStation?.shuttles || []}
-                onRefresh={loadData}
+                onAddShuttle={handleAddShuttleFromSheet}
             />
         </div>
     );
 };
 
 export default MapPage;
+
+const addStationTopButtonStyle = (isActive: boolean): React.CSSProperties => ({
+    position: 'fixed',
+    top: 'calc(env(safe-area-inset-top, 0px) + 20px)',
+    right: '20px',
+    zIndex: 1200,
+    border: 'none',
+    borderRadius: '999px',
+    padding: '10px 14px',
+    fontSize: '0.88rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    backgroundColor: isActive ? '#8B5CF6' : '#FFFFFF',
+    color: isActive ? '#FFFFFF' : '#4F46E5',
+    boxShadow: '0 6px 16px rgba(79, 70, 229, 0.2)'
+});

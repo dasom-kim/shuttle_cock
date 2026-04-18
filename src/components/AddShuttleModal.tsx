@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useFeedback } from './feedback/FeedbackProvider';
 
 interface AddShuttleModalProps {
     isOpen: boolean;
@@ -6,16 +7,33 @@ interface AddShuttleModalProps {
     onSave: (data: any) => void;
     lat: number;
     lng: number;
+    stationName: string;
 }
 
-const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSave, lat, lng }) => {
-    const [stationName, setStationName] = useState('');
+const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSave, lat, lng, stationName }) => {
+    const { showToast } = useFeedback();
+    const [shuttleName, setShuttleName] = useState('');
     const [company, setCompany] = useState('');
     const [type, setType] = useState<'work' | 'leave'>('work');
-    const [time, setTime] = useState('08:30');
+    const [boardingTime, setBoardingTime] = useState('08:30');
+    const [alightingTime, setAlightingTime] = useState('09:00');
     const [congestion, setCongestion] = useState('적당');
 
     if (!isOpen) return null;
+
+    const handleSave = () => {
+        if (!shuttleName.trim()) {
+            showToast('셔틀 표기명을 입력해 주세요', 'info');
+            return;
+        }
+        if (!company.trim()) {
+            showToast('어떤 기업 셔틀인지 기업명도 함께 입력해 주세요', 'info');
+            return;
+        }
+        // type, boardingTime, alightingTime, congestion은 기본값이 설정되어 있으므로 별도 검사 불필요
+
+        onSave({ shuttleName, company, type, boardingTime, alightingTime, congestion, lat, lng });
+    };
 
     return (
         <div style={modalOverlayStyle}>
@@ -23,12 +41,22 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSa
                 <h3 style={{ color: '#8B5CF6', marginBottom: '20px' }}>🚌 셔틀 정보 등록</h3>
 
                 <div style={inputGroupStyle}>
-                    <label>정류장 이름</label>
+                    <label>정류장 명칭 (네이버 기준)</label>
                     <input
                         type="text"
-                        placeholder="예: 강남역 1번 출구"
                         value={stationName}
-                        onChange={(e) => setStationName(e.target.value)}
+                        disabled
+                        style={{ ...inputStyle, backgroundColor: '#F9FAFB', color: '#6B7280' }}
+                    />
+                </div>
+
+                <div style={inputGroupStyle}>
+                    <label>셔틀 표기명</label>
+                    <input
+                        type="text"
+                        placeholder="예: 강남A, 2출 탑승지"
+                        value={shuttleName}
+                        onChange={(e) => setShuttleName(e.target.value)}
                         style={inputStyle}
                     />
                 </div>
@@ -58,11 +86,37 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSa
                 </div>
 
                 <div style={inputGroupStyle}>
-                    <label>도착 시간</label>
+                    <label>
+                        {type === 'work' ? '승차 시간' : '하차 시간'}
+                    </label>
                     <input
                         type="time"
-                        value={time}
-                        onChange={(e) => setTime(e.target.value)}
+                        value={type === 'work' ? boardingTime : alightingTime}
+                        onChange={(e) => {
+                            if (type === 'work') {
+                                setBoardingTime(e.target.value);
+                            } else {
+                                setAlightingTime(e.target.value);
+                            }
+                        }}
+                        style={inputStyle}
+                    />
+                </div>
+
+                <div style={inputGroupStyle}>
+                    <label>
+                        {type === 'work' ? '회사 하차 시간' : '회사 승차 시간'}
+                    </label>
+                    <input
+                        type="time"
+                        value={type === 'work' ? alightingTime : boardingTime}
+                        onChange={(e) => {
+                            if (type === 'work') {
+                                setAlightingTime(e.target.value);
+                            } else {
+                                setBoardingTime(e.target.value);
+                            }
+                        }}
                         style={inputStyle}
                     />
                 </div>
@@ -83,7 +137,7 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSa
                 <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
                     <button onClick={onClose} style={cancelButtonStyle}>취소</button>
                     <button
-                        onClick={() => onSave({ stationName, company, type, time, congestion, lat, lng })}
+                        onClick={handleSave}
                         style={saveButtonStyle}
                     >정보 저장하기</button>
                 </div>
@@ -93,7 +147,7 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({ isOpen, onClose, onSa
 };
 
 // --- 스타일 정의 (생략 가능하나 가이드용으로 포함) ---
-const modalOverlayStyle: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 2000 };
+const modalOverlayStyle: React.CSSProperties = { position: 'fixed', top: 0, left: 0, width: '100%', height: '100%', backgroundColor: 'rgba(0,0,0,0.5)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 5000 };
 const modalContentStyle: React.CSSProperties = { backgroundColor: 'white', padding: '30px', borderRadius: '16px', width: '90%', maxWidth: '400px' };
 const inputGroupStyle: React.CSSProperties = { marginBottom: '15px', display: 'flex', flexDirection: 'column', gap: '5px' };
 const inputStyle: React.CSSProperties = { padding: '10px', borderRadius: '8px', border: '1px solid #D1D5DB' };

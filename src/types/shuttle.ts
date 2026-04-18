@@ -3,8 +3,9 @@ export interface Shuttle {
     id?: string;
     company: string;
     type: 'work' | 'leave';
-    time: string;
-    congestion: '여유' | '적당' | '만차';
+    boardingTime: string;
+    alightingTime: string;
+    congestion: '여유' | '적당' | '부족';
     days: string[];
     addedBy: string;
     createdAt: Date;
@@ -15,7 +16,7 @@ export interface Station {
     id?: string; // Firestore Document ID
     lat: number;
     lng: number;
-    name: string;
+    stationName: string;
     shuttles?: Shuttle[]; // 조회 시 결합하여 사용
     createdAt: Date;
     updatedAt: Date;
