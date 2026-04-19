@@ -383,7 +383,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         if (!sheetRef.current) return;
 
         const target = event.target as HTMLElement | null;
-        if (target?.closest('button, input, select, textarea, a')) {
+        if (target?.closest('button, input, select, textarea, a, [data-swipe-item="true"]')) {
             return;
         }
 
@@ -508,7 +508,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
             <div
                 key={itemKey}
                 style={swipeWrapperStyle}
-                data-no-sheet-drag="true"
+                data-swipe-item="true"
                 onPointerDown={(event) => beginSwipe(itemKey, event)}
                 onPointerMove={moveSwipe}
                 onPointerUp={endSwipe}
