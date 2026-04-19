@@ -168,6 +168,32 @@ export interface GeocodeAddressResult {
     y: number;
 }
 
+const geocodeByNaverMapSDK = (query: string) =>
+    new Promise<GeocodeAddressResult[]>((resolve, reject) => {
+        const naverAny = (window as any)?.naver;
+        const service = naverAny?.maps?.Service;
+        if (!service?.geocode) {
+            reject(new Error('Naver Maps geocoder module is unavailable.'));
+            return;
+        }
+
+        service.geocode(
+            { query },
+            (_status: any, response: any) => {
+                const raw = Array.isArray(response?.v2?.addresses) ? response.v2.addresses : [];
+                const mapped = raw
+                    .map((item: any) => ({
+                        roadAddress: (item?.roadAddress || '').trim(),
+                        jibunAddress: (item?.jibunAddress || '').trim(),
+                        x: Number(item?.x),
+                        y: Number(item?.y)
+                    }))
+                    .filter((item: GeocodeAddressResult) => Number.isFinite(item.x) && Number.isFinite(item.y));
+                resolve(mapped);
+            }
+        );
+    });
+
 export const geocodeAddressNcloud = async (query: string) => {
     const keyword = query.trim();
     if (!keyword) return [];
@@ -177,23 +203,38 @@ export const geocodeAddressNcloud = async (query: string) => {
         count: '10'
     });
 
-    const response = await fetch(`${GEOCODE_ENDPOINT}?${params.toString()}`, {
-        method: 'GET'
-    });
+    try {
+        const response = await fetch(`${GEOCODE_ENDPOINT}?${params.toString()}`, {
+            method: 'GET'
+        });
 
-    if (!response.ok) {
-        throw new Error(`Geocode failed: ${response.status}`);
+        if (!response.ok) {
+            throw new Error(`Geocode failed: ${response.status}`);
+        }
+
+        const data = await response.json();
+        const addresses = Array.isArray(data?.addresses) ? data.addresses : [];
+
+        return addresses
+            .map((item: any) => ({
+                roadAddress: (item?.roadAddress || '').trim(),
+                jibunAddress: (item?.jibunAddress || '').trim(),
+                x: Number(item?.x),
+                y: Number(item?.y)
+            }))
+            .filter((item: GeocodeAddressResult) => Number.isFinite(item.x) && Number.isFinite(item.y));
+    } catch (error) {
+        console.warn('Ncloud geocode failed, fallback to naver maps sdk geocoder.', error);
     }
 
-    const data = await response.json();
-    const addresses = Array.isArray(data?.addresses) ? data.addresses : [];
+    try {
+        const sdkResults = await geocodeByNaverMapSDK(keyword);
+        if (sdkResults.length) {
+            return sdkResults;
+        }
+    } catch (error) {
+        console.warn('Naver Maps SDK geocode fallback failed.', error);
+    }
 
-    return addresses
-        .map((item: any) => ({
-            roadAddress: (item?.roadAddress || '').trim(),
-            jibunAddress: (item?.jibunAddress || '').trim(),
-            x: Number(item?.x),
-            y: Number(item?.y)
-        }))
-        .filter((item: GeocodeAddressResult) => Number.isFinite(item.x) && Number.isFinite(item.y));
+    return [];
 };
