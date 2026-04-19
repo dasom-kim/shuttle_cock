@@ -1,8 +1,14 @@
 import React, {useEffect, useRef, useState} from 'react';
 import EditRequestModal from "../components/EditRequestModal";
+import ShuttleReviewsModal from '../components/ShuttleReviewsModal';
 import { useAuth } from '../hooks/useAuth';
 import { useFeedback } from './feedback/FeedbackProvider';
-import { buildFavoriteShuttleKey, fetchFavoriteShuttleKeys, toggleFavoriteShuttle } from '../services/shuttleService';
+import {
+    buildFavoriteShuttleKey,
+    fetchFavoriteShuttleKeys,
+    fetchShuttleReviewCount,
+    toggleFavoriteShuttle
+} from '../services/shuttleService';
 
 interface Shuttle {
     id: string;
@@ -47,6 +53,9 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
     const { showToast } = useFeedback();
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
     const [targetShuttle, setTargetShuttle] = useState<any>(null);
+    const [isReviewsModalOpen, setIsReviewsModalOpen] = useState(false);
+    const [reviewTargetShuttle, setReviewTargetShuttle] = useState<Shuttle | null>(null);
+    const [reviewCountByKey, setReviewCountByKey] = useState<Record<string, number>>({});
     const [favoriteShuttleKeys, setFavoriteShuttleKeys] = useState<Set<string>>(new Set());
     const [favoritePendingKeys, setFavoritePendingKeys] = useState<Set<string>>(new Set());
     const [companyFilter, setCompanyFilter] = useState('all');
@@ -81,6 +90,11 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
     const handleOpenEdit = (shuttle: any) => {
         setTargetShuttle(shuttle);
         setIsEditModalOpen(true);
+    };
+
+    const buildReviewCountKey = (stationValue?: string, shuttleValue?: string) => {
+        if (!stationValue || !shuttleValue) return '';
+        return `${stationValue}_${shuttleValue}`;
     };
 
     // ✨ 상대 시간 표시 유틸리티
@@ -206,6 +220,50 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
     }, [isOpen, user]);
 
     useEffect(() => {
+        if (!isOpen) {
+            setReviewCountByKey({});
+            return;
+        }
+
+        const candidates = shuttles
+            .filter((shuttle) => shuttle.stationId)
+            .map((shuttle) => ({
+                stationId: shuttle.stationId as string,
+                shuttleId: shuttle.id
+            }));
+
+        if (!candidates.length) {
+            setReviewCountByKey({});
+            return;
+        }
+
+        let isCancelled = false;
+        void Promise.all(
+            candidates.map(async ({ stationId, shuttleId }) => {
+                const count = await fetchShuttleReviewCount(stationId, shuttleId);
+                return { key: buildReviewCountKey(stationId, shuttleId), count };
+            })
+        )
+            .then((result) => {
+                if (isCancelled) return;
+                const nextMap: Record<string, number> = {};
+                result.forEach((item) => {
+                    nextMap[item.key] = item.count;
+                });
+                setReviewCountByKey(nextMap);
+            })
+            .catch((error) => {
+                if (!isCancelled) {
+                    console.error('탑승 후기 개수 조회 실패:', error);
+                }
+            });
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [isOpen, shuttles]);
+
+    useEffect(() => {
         if (!isDraggingSheet) return;
 
         const minHeight = COLLAPSED_PEEK_HEIGHT;
@@ -311,6 +369,10 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
     };
 
     const beginSwipe = (itemKey: string, event: React.PointerEvent<HTMLDivElement>) => {
+        const target = event.target as HTMLElement | null;
+        if (target?.closest('button, input, select, textarea, a')) {
+            return;
+        }
         swipeStateRef.current = {
             key: itemKey,
             startX: event.clientX,
@@ -359,6 +421,8 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         const isFavoritePending = favoriteKey ? favoritePendingKeys.has(favoriteKey) : false;
         const itemKey = `${keyPrefix}-${shuttle.stationId || 'unknown'}-${shuttle.id}`;
         const isSwipeOpened = openedSwipeKey === itemKey;
+        const reviewCountKey = buildReviewCountKey(shuttle.stationId, shuttle.id);
+        const reviewCount = reviewCountByKey[reviewCountKey] ?? 0;
 
         return (
             <div
@@ -420,6 +484,18 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                             <span style={typeBadgeStyle(shuttle.type)}>
                                 {shuttle.type === 'work' ? '출근' : '퇴근'}
                             </span>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setOpenedSwipeKey(null);
+                                    setReviewTargetShuttle(shuttle);
+                                    setIsReviewsModalOpen(true);
+                                }}
+                                style={reviewTriggerButtonStyle}
+                            >
+                                <span>💬</span>
+                                <span>{reviewCount}</span>
+                            </button>
                             <div style={rightAlignContainerStyle}>
                                 {isEnabled && (
                                     <span style={congestionBadgeStyle(shuttle.congestion)}>
@@ -624,6 +700,21 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                             shuttle={targetShuttle}
                             user={user}
                         />
+                        <ShuttleReviewsModal
+                            isOpen={isReviewsModalOpen}
+                            onClose={() => setIsReviewsModalOpen(false)}
+                            stationName={stationName}
+                            shuttle={reviewTargetShuttle}
+                            user={user}
+                            onReviewCountChanged={(targetStationId, targetShuttleId, nextCount) => {
+                                const key = buildReviewCountKey(targetStationId, targetShuttleId);
+                                if (!key) return;
+                                setReviewCountByKey((prev) => ({
+                                    ...prev,
+                                    [key]: nextCount
+                                }));
+                            }}
+                        />
                     </>
                 )}
             </div>
@@ -697,6 +788,18 @@ const favoriteButtonStyle = (isFavorite: boolean, disabled: boolean): React.CSSP
     cursor: disabled ? 'not-allowed' : 'pointer',
     opacity: disabled ? 0.5 : 1
 });
+const reviewTriggerButtonStyle: React.CSSProperties = {
+    border: 'none',
+    background: 'transparent',
+    color: '#4B5563',
+    fontSize: '0.82rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '4px',
+    padding: '0 2px'
+};
 const rightAlignContainerStyle: React.CSSProperties = { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'nowrap' };
 const infoRowStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' };
 const stationNameLabelStyle: React.CSSProperties = { fontSize: '0.9rem', color: '#4B5563' };

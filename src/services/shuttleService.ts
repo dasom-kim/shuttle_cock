@@ -8,7 +8,11 @@ import {
     updateDoc,
     setDoc,
     getDoc,
-    deleteDoc
+    deleteDoc,
+    query,
+    orderBy,
+    limit,
+    getCountFromServer
 } from 'firebase/firestore';
 import { getDistance } from '../utils/mapUtils';
 
@@ -38,6 +42,12 @@ interface FavoriteShuttlePayload {
     type: 'work' | 'leave';
     boardingTime?: string;
     alightingTime?: string;
+}
+
+interface ShuttleReviewPayload {
+    content: string;
+    userId: string;
+    userNickname: string;
 }
 
 export const buildFavoriteShuttleKey = (stationId: string, shuttleId: string) => `${stationId}_${shuttleId}`;
@@ -296,4 +306,31 @@ export const toggleFavoriteShuttle = async (uid: string, shuttle: FavoriteShuttl
         createdAt: serverTimestamp()
     });
     return { isFavorite: true };
+};
+
+export const fetchShuttleReviewCount = async (stationId: string, shuttleId: string) => {
+    const reviewsRef = collection(db, 'stations', stationId, 'shuttles', shuttleId, 'reviews');
+    const snapshot = await getCountFromServer(reviewsRef);
+    return snapshot.data().count;
+};
+
+export const fetchShuttleReviews = async (stationId: string, shuttleId: string) => {
+    const reviewsRef = collection(db, 'stations', stationId, 'shuttles', shuttleId, 'reviews');
+    const reviewsQuery = query(reviewsRef, orderBy('createdAt', 'desc'), limit(100));
+    const snapshot = await getDocs(reviewsQuery);
+    return snapshot.docs.map((reviewDoc) => ({
+        id: reviewDoc.id,
+        ...reviewDoc.data()
+    }));
+};
+
+export const addShuttleReview = async (stationId: string, shuttleId: string, payload: ShuttleReviewPayload) => {
+    const reviewsRef = collection(db, 'stations', stationId, 'shuttles', shuttleId, 'reviews');
+    await addDoc(reviewsRef, {
+        content: payload.content,
+        userId: payload.userId,
+        userNickname: payload.userNickname,
+        createdAt: serverTimestamp()
+    });
+    return { success: true };
 };
