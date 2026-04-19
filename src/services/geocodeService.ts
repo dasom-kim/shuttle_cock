@@ -1,12 +1,11 @@
 const REVERSE_GEOCODE_ENDPOINT = '/api/naver-reverse';
 const GEOCODE_ENDPOINT = '/api/naver-geocode';
 
-const buildLegacyAddress = (result: any) => {
+const buildRoadAddressFromResult = (result: any) => {
     const region = result?.region;
     const land = result?.land;
 
     const areaParts = [
-        region?.area1?.name,
         region?.area2?.name,
         region?.area3?.name,
         region?.area4?.name
@@ -20,21 +19,22 @@ const buildLegacyAddress = (result: any) => {
     return [areaParts.join(' '), road, roadNumber].filter(Boolean).join(' ').trim();
 };
 
-const extractLandAdditionName = (result: any) => {
+const extractBuildingName = (result: any) => {
     return result?.land?.addition0?.value?.trim?.() || '';
 };
 
 const extractStationNameFromResponse = (data: any) => {
     const roadResult = data?.results?.find((item: any) => item?.name === 'roadaddr');
     const addrResult = data?.results?.find((item: any) => item?.name === 'addr');
-    const additionName = extractLandAdditionName(roadResult) || extractLandAdditionName(addrResult);
-    const parsedFromResults = buildLegacyAddress(roadResult) || buildLegacyAddress(addrResult);
+    const buildingName = extractBuildingName(roadResult) || extractBuildingName(addrResult);
+    const roadAddress =
+        data?.v2?.address?.roadAddress?.trim?.() ||
+        buildRoadAddressFromResult(roadResult) ||
+        '';
 
     return (
-        additionName ||
-        parsedFromResults ||
-        data?.v2?.address?.roadAddress ||
-        data?.v2?.address?.jibunAddress ||
+        buildingName ||
+        roadAddress ||
         ''
     ).trim();
 };
