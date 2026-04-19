@@ -71,6 +71,7 @@ const MapPage = () => {
     const [isInitialLoading, setIsInitialLoading] = useState(true);
     const [isNicknameModalOpen, setIsNicknameModalOpen] = useState(false);
     const [suggestedNickname, setSuggestedNickname] = useState('');
+    const [currentUserNickname, setCurrentUserNickname] = useState('');
 
     const mapRef = useRef<naver.maps.Map | null>(null);
     const markersRef = useRef<naver.maps.Marker[]>([]);
@@ -155,6 +156,7 @@ const MapPage = () => {
         if (!user?.uid) {
             checkedNicknameUidRef.current = null;
             setIsNicknameModalOpen(false);
+            setCurrentUserNickname('');
             return;
         }
 
@@ -170,6 +172,9 @@ const MapPage = () => {
                 if (isCancelled) return;
                 if (!nickname.trim()) {
                     setIsNicknameModalOpen(true);
+                    setCurrentUserNickname('');
+                } else {
+                    setCurrentUserNickname(nickname.trim());
                 }
             })
             .catch((error) => {
@@ -533,8 +538,8 @@ const MapPage = () => {
                     destinationX: formData.destinationX,
                     destinationY: formData.destinationY,
                     congestion: formData.congestion,
-                    congestionUpdatedAt: formData.congestionUpdatedAt,
                     addedBy: user?.uid || 'anonymous',
+                    addedByNickname: currentUserNickname || '익명',
                     days: ['월', '화', '수', '목', '금']
                 },
                 (formData.stationName || selectedStationName || '정류장 정보').trim()
@@ -625,6 +630,7 @@ const MapPage = () => {
                 onAddShuttle={handleAddShuttleFromSheet}
                 onSelectShuttleRoute={handleSelectShuttleRoute}
                 onDataChanged={loadData}
+                currentUserNickname={currentUserNickname}
             />
 
             <NicknameSetupModal
@@ -634,6 +640,7 @@ const MapPage = () => {
                     if (!user?.uid) return;
                     const finalNickname = nickname.trim() || suggestedNickname;
                     await setShuttlecockNickname(user.uid, finalNickname);
+                    setCurrentUserNickname(finalNickname);
                     setIsNicknameModalOpen(false);
                     showToast(`닉네임이 '${finalNickname}'(으)로 설정됐어요.`, 'success');
                 }}

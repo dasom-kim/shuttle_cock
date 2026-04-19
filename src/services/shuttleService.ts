@@ -30,9 +30,9 @@ export interface ShuttleData {
     destinationX: number;
     destinationY: number;
     congestion: string; // '여유' | '적당' | '부족' 등
-    congestionUpdatedAt: any;
     days: string[];     // 운행 요일 (예: ['월', '화', '수', '목', '금'])
     addedBy: string;    // 등록한 유저의 UID
+    addedByNickname: string;
 }
 
 interface FavoriteShuttlePayload {
@@ -48,6 +48,7 @@ interface FavoriteShuttlePayload {
 interface ShuttleReviewPayload {
     content: string;
     userId: string;
+    userNickname: string;
 }
 
 interface ShuttleUpdatePayload {
@@ -56,6 +57,7 @@ interface ShuttleUpdatePayload {
     congestion: string;
     isDelete: boolean;
     changedByUid: string;
+    changedByNickname: string;
     beforeData: {
         boardingTime: string;
         alightingTime: string;
@@ -110,7 +112,7 @@ export const saveShuttleInfo = async (lat: number, lng: number, shuttle: Shuttle
     try {
         const stationsRef = collection(db, 'stations');
         const querySnapshot = await getDocs(stationsRef);
-        const addedByNickname = await getShuttlecockNickname(shuttle.addedBy, '익명');
+        const addedByNickname = (shuttle.addedByNickname || '').trim() || '익명';
 
         let targetStationId = "";
         let targetStationName = "";
@@ -130,7 +132,9 @@ export const saveShuttleInfo = async (lat: number, lng: number, shuttle: Shuttle
         const finalData = {
             ...shuttle,
             createdAt: serverTimestamp(),          // 전체 문서 생성 시간
-            congestionUpdatedAt: serverTimestamp(), // ✨ 초기 혼잡도 업데이트 시간 설정
+            updatedAt: serverTimestamp(),
+            updatedByUid: shuttle.addedBy || 'anonymous',
+            updatedByNickname: addedByNickname,
             enable: true                            // 기본 활성화 상태
         };
 
@@ -344,15 +348,16 @@ export const applyShuttleUpdate = async (
     shuttleId: string,
     payload: ShuttleUpdatePayload
 ) => {
-    const changedByNickname = await getShuttlecockNickname(payload.changedByUid, '익명');
+    const changedByNickname = (payload.changedByNickname || '').trim() || '익명';
     const shuttleRef = doc(db, 'stations', stationId, 'shuttles', shuttleId);
     await updateDoc(shuttleRef, {
         boardingTime: payload.boardingTime,
         alightingTime: payload.alightingTime,
         congestion: payload.congestion,
-        congestionUpdatedAt: serverTimestamp(),
         enable: payload.isDelete ? false : true,
-        updatedAt: serverTimestamp()
+        updatedAt: serverTimestamp(),
+        updatedByUid: payload.changedByUid,
+        updatedByNickname: changedByNickname
     });
 
     const historyRef = collection(db, 'stations', stationId, 'shuttles', shuttleId, 'histories');
@@ -493,7 +498,7 @@ export const fetchShuttleReviews = async (stationId: string, shuttleId: string) 
 };
 
 export const addShuttleReview = async (stationId: string, shuttleId: string, payload: ShuttleReviewPayload) => {
-    const userNickname = await getShuttlecockNickname(payload.userId, '익명');
+    const userNickname = (payload.userNickname || '').trim() || '익명';
     const reviewsRef = collection(db, 'stations', stationId, 'shuttles', shuttleId, 'reviews');
     await addDoc(reviewsRef, {
         content: payload.content,

@@ -25,7 +25,8 @@ interface Shuttle {
     time?: string;
     type: 'work' | 'leave';
     congestion: string;
-    congestionUpdatedAt?: any;
+    updatedAt?: any;
+    updatedByNickname?: string;
     enable: boolean;
 }
 
@@ -39,10 +40,11 @@ interface StationDetailSheetProps {
     onAddShuttle: () => void;
     onSelectShuttleRoute: (shuttle: Shuttle) => void;
     onDataChanged?: () => void | Promise<void>;
+    currentUserNickname?: string;
 }
 
 const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
-                                                                   isOpen, stationId, resetKey, stationName, shuttles, onClose, onAddShuttle, onSelectShuttleRoute, onDataChanged
+                                                                   isOpen, stationId, resetKey, stationName, shuttles, onClose, onAddShuttle, onSelectShuttleRoute, onDataChanged, currentUserNickname
                                                                }) => {
     const COLLAPSED_PEEK_HEIGHT = 38;
     const getDefaultSheetHeight = () => {
@@ -111,15 +113,12 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         return `${stationValue}_${shuttleValue}`;
     };
 
-    // ✨ 상대 시간 표시 유틸리티
-    const getRelativeTime = (timestamp: any) => {
-        if (!timestamp) return "정보 없음";
-        const date = timestamp.toDate();
-        const diff = (new Date().getTime() - date.getTime()) / 1000;
-
-        if (diff < 60) return "방금 전";
-        if (diff < 3600) return `${Math.floor(diff / 60)}분 전`;
-        return `${date.getHours()}:${String(date.getMinutes()).padStart(2, '0')}`;
+    const getUpdatedLabel = (timestamp: any, nickname?: string) => {
+        if (!timestamp?.toDate) return `정보 없음${nickname ? ` · ${nickname}` : ''}`;
+        const date = timestamp.toDate() as Date;
+        const dateText = `${date.getFullYear()}.${String(date.getMonth() + 1).padStart(2, '0')}.${String(date.getDate()).padStart(2, '0')} ` +
+            `${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+        return `${dateText} · ${nickname || '익명'}`;
     };
 
     const getTimeValue = (value: string) => {
@@ -150,7 +149,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
 
     const applySort = (target: Shuttle[]) => [...target].sort((a, b) => {
         const timeDiff = getTimeValue(getDisplayTime(a)) - getTimeValue(getDisplayTime(b));
-        const updatedDiff = getUpdatedTimeValue(a.congestionUpdatedAt) - getUpdatedTimeValue(b.congestionUpdatedAt);
+        const updatedDiff = getUpdatedTimeValue(a.updatedAt) - getUpdatedTimeValue(b.updatedAt);
 
         if (sortMode === 'time-asc') return timeDiff;
         if (sortMode === 'time-desc') return -timeDiff;
@@ -474,7 +473,6 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                     <button
                         type="button"
                         onClick={() => {
-                            setOpenedSwipeKey(null);
                             handleOpenEdit(shuttle);
                         }}
                         style={swipeEditButtonStyle}
@@ -484,7 +482,6 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                     <button
                         type="button"
                         onClick={() => {
-                            setOpenedSwipeKey(null);
                             setHistoryTargetShuttle(shuttle);
                             setIsHistoryModalOpen(true);
                         }}
@@ -496,7 +493,8 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                 <div
                     style={{
                         ...shuttleItemStyle,
-                        opacity: isEnabled ? 1 : 0.6,
+                        backgroundColor: isEnabled ? '#F9FAFB' : '#F3F4F6',
+                        borderColor: isEnabled ? '#F3F4F6' : '#E5E7EB',
                         transform: isSwipeOpened ? 'translateX(-148px)' : 'translateX(0)',
                         transition: 'transform 0.2s ease'
                     }}
@@ -556,7 +554,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                         </div>
 
                         {!isEnabled && (
-                            <div style={suspendedBadgeStyle}>현재 정보에 의해 운행이 중단된 노선입니다.</div>
+                            <div style={suspendedBadgeStyle}>현재 운행하지 않는 셔틀입니다.</div>
                         )}
 
                         <div style={infoRowStyle}>
@@ -565,7 +563,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                                 {shuttle.company}
                             </span>
                             <span style={timestampStyle}>
-                                마지막 업데이트: {getRelativeTime(shuttle.congestionUpdatedAt)}
+                                {getUpdatedLabel(shuttle.updatedAt, shuttle.updatedByNickname)}
                             </span>
                         </div>
                     </div>
@@ -750,6 +748,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                             stationId={targetShuttle?.stationId || stationId}
                             shuttle={targetShuttle}
                             user={user}
+                            currentUserNickname={currentUserNickname}
                         />
                         <ShuttleReviewsModal
                             isOpen={isReviewsModalOpen}
@@ -757,6 +756,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                             stationName={stationName}
                             shuttle={reviewTargetShuttle}
                             user={user}
+                            currentUserNickname={currentUserNickname}
                             onReviewCountChanged={(targetStationId, targetShuttleId, nextCount) => {
                                 const key = buildReviewCountKey(targetStationId, targetShuttleId);
                                 if (!key) return;

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { fetchShuttleHistories, reportShuttleHistory } from '../services/shuttleService';
+import { fetchShuttleHistories, getShuttlecockNickname, reportShuttleHistory } from '../services/shuttleService';
 import { useFeedback } from './feedback/FeedbackProvider';
 
 interface ShuttleHistoryModalProps {
@@ -32,9 +32,34 @@ const ShuttleHistoryModal: React.FC<ShuttleHistoryModalProps> = ({
         let isCancelled = false;
         setIsLoading(true);
         void fetchShuttleHistories(shuttle.stationId, shuttle.id)
-            .then((items) => {
+            .then(async (items) => {
+                const unresolvedUids = Array.from(
+                    new Set(
+                        items
+                            .filter((item: any) => item.changedByUid && (!item.changedByNickname || item.changedByNickname === '익명'))
+                            .map((item: any) => item.changedByUid)
+                    )
+                );
+
+                const nicknameMap = new Map<string, string>();
+                await Promise.all(
+                    unresolvedUids.map(async (uid) => {
+                        const nickname = await getShuttlecockNickname(uid, '익명');
+                        nicknameMap.set(uid, nickname);
+                    })
+                );
+
+                const hydratedItems = items.map((item: any) => {
+                    if (item.changedByNickname && item.changedByNickname !== '익명') return item;
+                    if (!item.changedByUid) return item;
+                    return {
+                        ...item,
+                        changedByNickname: nicknameMap.get(item.changedByUid) || item.changedByNickname || '익명'
+                    };
+                });
+
                 if (!isCancelled) {
-                    setHistories(items);
+                    setHistories(hydratedItems);
                 }
             })
             .catch((error) => {

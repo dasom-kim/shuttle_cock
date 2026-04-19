@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { applyShuttleUpdate, isUserEditRestricted } from '../services/shuttleService';
 import { useFeedback } from './feedback/FeedbackProvider';
 
@@ -7,17 +7,20 @@ interface EditRequestModalProps {
     onClose: () => void;
     onApplied?: () => void | Promise<void>;
     stationId?: string;
+    currentUserNickname?: string;
     shuttle: any; // 현재 선택된 셔틀 정보
     user: any;
 }
 
-const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, onApplied, stationId, shuttle, user }) => {
+const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, onApplied, stationId, currentUserNickname, shuttle, user }) => {
     const { showToast } = useFeedback();
     const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
     const [boardingTime, setBoardingTime] = useState('');
     const [alightingTime, setAlightingTime] = useState('');
     const [congestion, setCongestion] = useState('보통');
     const [isDelete, setIsDelete] = useState(false);
+    const [isCongestionDropdownOpen, setIsCongestionDropdownOpen] = useState(false);
+    const congestionDropdownRef = useRef<HTMLDivElement | null>(null);
 
     // 모달이 열릴 때 현재 값을 초기값으로 세팅
     useEffect(() => {
@@ -25,7 +28,7 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, on
             setBoardingTime(shuttle.boardingTime || shuttle.time || '');
             setAlightingTime(shuttle.alightingTime || shuttle.time || '');
             setCongestion(shuttle.congestion || '보통');
-            setIsDelete(false);
+            setIsDelete(shuttle.enable === false);
             return;
         }
 
@@ -35,8 +38,25 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, on
             setAlightingTime('');
             setCongestion('보통');
             setIsDelete(false);
+            setIsCongestionDropdownOpen(false);
         }
     }, [shuttle, isOpen]);
+
+    useEffect(() => {
+        if (!isCongestionDropdownOpen) return;
+
+        const handleOutsideClick = (event: MouseEvent) => {
+            const targetNode = event.target as Node;
+            if (!congestionDropdownRef.current?.contains(targetNode)) {
+                setIsCongestionDropdownOpen(false);
+            }
+        };
+
+        document.addEventListener('mousedown', handleOutsideClick);
+        return () => {
+            document.removeEventListener('mousedown', handleOutsideClick);
+        };
+    }, [isCongestionDropdownOpen]);
 
     if (!isOpen || !shuttle) return null;
 
@@ -62,6 +82,22 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, on
             return;
         }
 
+        const currentBoardingTime = shuttle.boardingTime || shuttle.time || '';
+        const currentAlightingTime = shuttle.alightingTime || shuttle.time || '';
+        const currentCongestion = shuttle.congestion || '보통';
+        const currentEnable = shuttle.enable !== false;
+        const nextEnable = !isDelete;
+        const isSameAsCurrent =
+            currentBoardingTime === boardingTime &&
+            currentAlightingTime === alightingTime &&
+            currentCongestion === congestion &&
+            currentEnable === nextEnable;
+
+        if (isSameAsCurrent) {
+            showToast('변경된 내용이 없어서 반영할 수 없어요.', 'info');
+            return;
+        }
+
         try {
             const restricted = await isUserEditRestricted(user.uid);
             if (restricted) {
@@ -75,6 +111,7 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, on
                 congestion,
                 isDelete,
                 changedByUid: user.uid,
+                changedByNickname: (currentUserNickname || '').trim() || '익명',
                 beforeData: {
                     boardingTime: shuttle.boardingTime || shuttle.time || '',
                     alightingTime: shuttle.alightingTime || shuttle.time || '',
@@ -139,29 +176,57 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, on
 
                 <div style={inputGroupStyle}>
                     <label style={labelStyle}>평균 혼잡도</label>
-                    <select
-                        value={congestion}
-                        onChange={(e) => setCongestion(e.target.value)}
-                        disabled={isDelete}
-                        style={isDelete ? disabledInputStyle : inputStyle}
-                    >
-                        <option value="여유">여유</option>
-                        <option value="보통">보통</option>
-                        <option value="부족">부족</option>
-                    </select>
+                    <div ref={congestionDropdownRef} style={dropdownWrapStyle}>
+                        <button
+                            type="button"
+                            onClick={() => {
+                                if (isDelete) return;
+                                setIsCongestionDropdownOpen((prev) => !prev);
+                            }}
+                            style={dropdownButtonStyle(isDelete)}
+                        >
+                            <span style={dropdownValueStyle}>{congestion}</span>
+                            <span style={dropdownArrowStyle(isCongestionDropdownOpen)}>▾</span>
+                        </button>
+
+                        {isCongestionDropdownOpen && !isDelete && (
+                            <div style={dropdownMenuStyle}>
+                                {['여유', '보통', '부족'].map((option) => (
+                                    <button
+                                        key={option}
+                                        type="button"
+                                        onClick={() => {
+                                            setCongestion(option);
+                                            setIsCongestionDropdownOpen(false);
+                                        }}
+                                        style={dropdownOptionStyle(option === congestion)}
+                                    >
+                                        <span style={dropdownOptionTextStyle}>{option}</span>
+                                    </button>
+                                ))}
+                            </div>
+                        )}
+                    </div>
                 </div>
 
-                <div style={deleteOptionStyle}>
-                    <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                        <input
-                            type="checkbox"
-                            checked={isDelete}
-                            onChange={(e) => setIsDelete(e.target.checked)}
-                        />
-                        <span style={{ color: '#EF4444', fontWeight: 'bold', fontSize: '0.9rem' }}>
-                            이 노선은 더 이상 운행하지 않습니다
-                        </span>
-                    </label>
+                <div style={inputGroupStyle}>
+                    <label style={labelStyle}>운행 상태</label>
+                    <div style={serviceToggleWrapStyle}>
+                        <button
+                            type="button"
+                            onClick={() => setIsDelete(false)}
+                            style={serviceToggleButtonStyle(!isDelete)}
+                        >
+                            운행
+                        </button>
+                        <button
+                            type="button"
+                            onClick={() => setIsDelete(true)}
+                            style={serviceToggleButtonStyle(isDelete)}
+                        >
+                            미운행
+                        </button>
+                    </div>
                 </div>
 
                 <div style={buttonGroupStyle}>
@@ -204,6 +269,64 @@ const inputGroupStyle: React.CSSProperties = { marginBottom: '15px', display: 'f
 const labelStyle: React.CSSProperties = { fontSize: '0.85rem', fontWeight: 'bold', color: '#4B5563' };
 const inputStyle: React.CSSProperties = { padding: '10px', borderRadius: '8px', border: '1px solid #D1D5DB', fontSize: '1rem' };
 const disabledInputStyle: React.CSSProperties = { ...inputStyle, backgroundColor: '#F3F4F6', color: '#9CA3AF' };
+const dropdownWrapStyle: React.CSSProperties = { position: 'relative' };
+const dropdownButtonStyle = (disabled: boolean): React.CSSProperties => ({
+    ...inputStyle,
+    width: '100%',
+    backgroundColor: disabled ? '#F3F4F6' : '#FFFFFF',
+    color: disabled ? '#9CA3AF' : '#111827',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    textAlign: 'left',
+    gap: '10px',
+    cursor: disabled ? 'not-allowed' : 'pointer'
+});
+const dropdownValueStyle: React.CSSProperties = {
+    minWidth: 0,
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
+};
+const dropdownArrowStyle = (open: boolean): React.CSSProperties => ({
+    display: 'inline-flex',
+    width: '14px',
+    justifyContent: 'center',
+    color: '#6B7280',
+    transform: open ? 'rotate(180deg)' : 'rotate(0deg)',
+    transition: 'transform 0.18s ease',
+    marginRight: '2px'
+});
+const dropdownMenuStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: 'calc(100% + 6px)',
+    left: 0,
+    width: '100%',
+    backgroundColor: '#FFFFFF',
+    border: '1px solid #E5E7EB',
+    borderRadius: '10px',
+    boxShadow: '0 10px 20px rgba(15, 23, 42, 0.12)',
+    zIndex: 30,
+    overflow: 'hidden'
+};
+const dropdownOptionStyle = (selected: boolean): React.CSSProperties => ({
+    width: '100%',
+    border: 'none',
+    backgroundColor: selected ? '#EEF2FF' : '#FFFFFF',
+    color: selected ? '#4338CA' : '#111827',
+    padding: '10px 12px',
+    cursor: 'pointer',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '8px',
+    textAlign: 'left'
+});
+const dropdownOptionTextStyle: React.CSSProperties = {
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap'
+};
 const infoSummaryStyle: React.CSSProperties = {
     marginBottom: '15px',
     padding: '12px',
@@ -226,7 +349,20 @@ const typeBadgeStyle = (type: 'work' | 'leave'): React.CSSProperties => ({
     whiteSpace: 'nowrap',
     fontWeight: 700
 });
-const deleteOptionStyle: React.CSSProperties = { marginTop: '10px', padding: '12px', borderRadius: '8px', backgroundColor: '#FEF2F2' };
+const serviceToggleWrapStyle: React.CSSProperties = {
+    display: 'flex',
+    gap: '10px'
+};
+const serviceToggleButtonStyle = (active: boolean): React.CSSProperties => ({
+    flex: 1,
+    border: 'none',
+    borderRadius: '8px',
+    padding: '10px',
+    backgroundColor: active ? '#8B5CF6' : '#F3F4F6',
+    color: active ? '#FFFFFF' : '#4B5563',
+    fontWeight: 700,
+    cursor: 'pointer'
+});
 const buttonGroupStyle: React.CSSProperties = { display: 'flex', gap: '10px', marginTop: '25px' };
 const cancelButtonStyle: React.CSSProperties = { flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#F3F4F6', color: '#4B5563', fontWeight: 'bold', cursor: 'pointer' };
 const submitButtonStyle: React.CSSProperties = { flex: 1, padding: '12px', borderRadius: '8px', border: 'none', backgroundColor: '#8B5CF6', color: 'white', fontWeight: 'bold', cursor: 'pointer' };

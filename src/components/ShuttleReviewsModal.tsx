@@ -17,6 +17,7 @@ interface ShuttleReviewsModalProps {
         time?: string;
     } | null;
     user: any;
+    currentUserNickname?: string;
     onReviewCountChanged?: (stationId: string, shuttleId: string, nextCount: number) => void;
 }
 
@@ -26,6 +27,7 @@ const ShuttleReviewsModal: React.FC<ShuttleReviewsModalProps> = ({
     stationName,
     shuttle,
     user,
+    currentUserNickname,
     onReviewCountChanged
 }) => {
     const { showToast } = useFeedback();
@@ -101,7 +103,8 @@ const ShuttleReviewsModal: React.FC<ShuttleReviewsModalProps> = ({
             setIsSubmitting(true);
             const submitResult = await addShuttleReview(shuttle.stationId, shuttle.id, {
                 content,
-                userId: user.uid
+                userId: user.uid,
+                userNickname: (currentUserNickname || '').trim() || '익명'
             });
 
             const newReview = {
