@@ -99,16 +99,15 @@ const ShuttleReviewsModal: React.FC<ShuttleReviewsModalProps> = ({
 
         try {
             setIsSubmitting(true);
-            await addShuttleReview(shuttle.stationId, shuttle.id, {
+            const submitResult = await addShuttleReview(shuttle.stationId, shuttle.id, {
                 content,
-                userId: user.uid,
-                userNickname: user.displayName || '익명'
+                userId: user.uid
             });
 
             const newReview = {
                 id: `local-${Date.now()}`,
                 content,
-                userNickname: user.displayName || '익명',
+                userNickname: submitResult.userNickname || '익명',
                 createdAt: { toDate: () => new Date() }
             };
             setReviews((prev) => [newReview, ...prev]);

@@ -94,6 +94,12 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({
 
     if (!isOpen) return null;
 
+    const toMinutes = (value: string) => {
+        const [hour, minute] = value.split(':').map(Number);
+        if (!Number.isFinite(hour) || !Number.isFinite(minute)) return NaN;
+        return hour * 60 + minute;
+    };
+
     const handleSave = () => {
         if (!shuttleName.trim()) {
             showToast('셔틀 이름을 입력해 주세요', 'info');
@@ -105,6 +111,10 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({
         }
         if (!selectedDestination) {
             showToast(type === 'work' ? '도착지를 검색해서 선택해 주세요' : '출발지를 검색해서 선택해 주세요', 'info');
+            return;
+        }
+        if (toMinutes(boardingTime) >= toMinutes(alightingTime)) {
+            showToast('승차 시간과 하차 시간을 확인해 주세요.', 'error');
             return;
         }
         // type, boardingTime, alightingTime, congestion은 기본값이 설정되어 있으므로 별도 검사 불필요

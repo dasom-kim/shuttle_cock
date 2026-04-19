@@ -12,7 +12,8 @@ import {
     query,
     orderBy,
     limit,
-    getCountFromServer
+    getCountFromServer,
+    runTransaction
 } from 'firebase/firestore';
 import { getDistance } from '../utils/mapUtils';
 
@@ -47,10 +48,57 @@ interface FavoriteShuttlePayload {
 interface ShuttleReviewPayload {
     content: string;
     userId: string;
-    userNickname: string;
+}
+
+interface ShuttleUpdatePayload {
+    boardingTime: string;
+    alightingTime: string;
+    congestion: string;
+    isDelete: boolean;
+    changedByUid: string;
+    beforeData: {
+        boardingTime: string;
+        alightingTime: string;
+        congestion: string;
+        enable: boolean;
+    };
 }
 
 export const buildFavoriteShuttleKey = (stationId: string, shuttleId: string) => `${stationId}_${shuttleId}`;
+
+export const getShuttlecockNickname = async (uid: string, fallback = '익명') => {
+    if (!uid || uid === 'anonymous') return fallback;
+
+    try {
+        const userRef = doc(db, 'users', uid);
+        const userSnap = await getDoc(userRef);
+        if (!userSnap.exists()) return fallback;
+        const data = userSnap.data() as any;
+        const nickname = (data?.nickname || data?.userNickname || '').trim();
+        return nickname || fallback;
+    } catch (error) {
+        console.error('닉네임 조회 실패:', error);
+        return fallback;
+    }
+};
+
+export const setShuttlecockNickname = async (uid: string, nickname: string) => {
+    if (!uid) {
+        throw new Error('유효한 uid가 필요합니다.');
+    }
+
+    const trimmedNickname = nickname.trim();
+    if (!trimmedNickname) {
+        throw new Error('닉네임은 비어 있을 수 없습니다.');
+    }
+
+    const userRef = doc(db, 'users', uid);
+    await setDoc(userRef, {
+        nickname: trimmedNickname,
+        updatedAt: serverTimestamp()
+    }, { merge: true });
+    return { success: true, nickname: trimmedNickname };
+};
 
 /**
  * 셔틀 정보를 Firestore에 저장
@@ -62,6 +110,7 @@ export const saveShuttleInfo = async (lat: number, lng: number, shuttle: Shuttle
     try {
         const stationsRef = collection(db, 'stations');
         const querySnapshot = await getDocs(stationsRef);
+        const addedByNickname = await getShuttlecockNickname(shuttle.addedBy, '익명');
 
         let targetStationId = "";
         let targetStationName = "";
@@ -85,6 +134,25 @@ export const saveShuttleInfo = async (lat: number, lng: number, shuttle: Shuttle
             enable: true                            // 기본 활성화 상태
         };
 
+        const createInitialHistory = async (stationId: string, shuttleId: string) => {
+            const historyRef = collection(db, 'stations', stationId, 'shuttles', shuttleId, 'histories');
+            await addDoc(historyRef, {
+                changedByUid: shuttle.addedBy || 'anonymous',
+                changedByNickname: addedByNickname,
+                beforeData: null,
+                afterData: {
+                    boardingTime: shuttle.boardingTime || '',
+                    alightingTime: shuttle.alightingTime || '',
+                    congestion: shuttle.congestion || '보통',
+                    enable: true
+                },
+                reportUserIds: [],
+                reportCount: 0,
+                historyType: 'CREATE',
+                createdAt: serverTimestamp()
+            });
+        };
+
         if (targetStationId) {
             if (!targetStationName && stationName) {
                 const stationRef = doc(db, 'stations', targetStationId);
@@ -96,7 +164,8 @@ export const saveShuttleInfo = async (lat: number, lng: number, shuttle: Shuttle
 
             // 2-A. 기존 정류장이 있다면 'shuttles' 서브 컬렉션에 추가
             const shuttleSubColRef = collection(db, 'stations', targetStationId, 'shuttles');
-            await addDoc(shuttleSubColRef, finalData);
+            const newShuttleDocRef = await addDoc(shuttleSubColRef, finalData);
+            await createInitialHistory(targetStationId, newShuttleDocRef.id);
             return { success: true, message: "기존 정류장에 새로운 셔틀 정보가 추가되었습니다." };
         } else {
             // 2-B. 새로운 정류장이라면 새 문서 생성 후 'shuttles' 추가
@@ -109,7 +178,8 @@ export const saveShuttleInfo = async (lat: number, lng: number, shuttle: Shuttle
             });
 
             const shuttleSubColRef = collection(db, 'stations', newStationDocRef.id, 'shuttles');
-            await addDoc(shuttleSubColRef, finalData);
+            const newShuttleDocRef = await addDoc(shuttleSubColRef, finalData);
+            await createInitialHistory(newStationDocRef.id, newShuttleDocRef.id);
             return { success: true, message: "새로운 정류장 위치와 셔틀 정보가 등록되었습니다." };
         }
     } catch (error) {
@@ -269,6 +339,104 @@ export const submitShuttleRequest = async (requestData: any) => {
     }
 };
 
+export const applyShuttleUpdate = async (
+    stationId: string,
+    shuttleId: string,
+    payload: ShuttleUpdatePayload
+) => {
+    const changedByNickname = await getShuttlecockNickname(payload.changedByUid, '익명');
+    const shuttleRef = doc(db, 'stations', stationId, 'shuttles', shuttleId);
+    await updateDoc(shuttleRef, {
+        boardingTime: payload.boardingTime,
+        alightingTime: payload.alightingTime,
+        congestion: payload.congestion,
+        congestionUpdatedAt: serverTimestamp(),
+        enable: payload.isDelete ? false : true,
+        updatedAt: serverTimestamp()
+    });
+
+    const historyRef = collection(db, 'stations', stationId, 'shuttles', shuttleId, 'histories');
+    await addDoc(historyRef, {
+        changedByUid: payload.changedByUid,
+        changedByNickname: changedByNickname,
+        beforeData: payload.beforeData,
+        afterData: {
+            boardingTime: payload.boardingTime,
+            alightingTime: payload.alightingTime,
+            congestion: payload.congestion,
+            enable: payload.isDelete ? false : true
+        },
+        reportUserIds: [],
+        reportCount: 0,
+        createdAt: serverTimestamp()
+    });
+    return { success: true };
+};
+
+export const fetchShuttleHistories = async (stationId: string, shuttleId: string) => {
+    const historiesRef = collection(db, 'stations', stationId, 'shuttles', shuttleId, 'histories');
+    const historiesQuery = query(historiesRef, orderBy('createdAt', 'desc'), limit(200));
+    const snapshot = await getDocs(historiesQuery);
+    return snapshot.docs.map((historyDoc) => ({
+        id: historyDoc.id,
+        ...historyDoc.data()
+    }));
+};
+
+export const reportShuttleHistory = async (
+    stationId: string,
+    shuttleId: string,
+    historyId: string,
+    reporterUid: string
+) => {
+    const historyRef = doc(db, 'stations', stationId, 'shuttles', shuttleId, 'histories', historyId);
+
+    return runTransaction(db, async (transaction) => {
+        const historySnap = await transaction.get(historyRef);
+        if (!historySnap.exists()) {
+            throw new Error('신고할 히스토리를 찾을 수 없습니다.');
+        }
+
+        const historyData = historySnap.data() as any;
+        const changedByUid = historyData.changedByUid;
+        const reportUserIds: string[] = Array.isArray(historyData.reportUserIds)
+            ? historyData.reportUserIds
+            : [];
+
+        if (reportUserIds.includes(reporterUid)) {
+            return { alreadyReported: true, reportCount: reportUserIds.length, restricted: false };
+        }
+
+        const nextReportUserIds = [...reportUserIds, reporterUid];
+        const nextCount = nextReportUserIds.length;
+        transaction.update(historyRef, {
+            reportUserIds: nextReportUserIds,
+            reportCount: nextCount,
+            updatedAt: serverTimestamp()
+        });
+
+        let restricted = false;
+        if (changedByUid && nextCount >= 5) {
+            const userRef = doc(db, 'users', changedByUid);
+            transaction.set(userRef, {
+                editRestricted: true,
+                editRestrictedAt: serverTimestamp()
+            }, { merge: true });
+            restricted = true;
+        }
+
+        return { alreadyReported: false, reportCount: nextCount, restricted };
+    });
+};
+
+export const isUserEditRestricted = async (uid: string) => {
+    const userRef = doc(db, 'users', uid);
+    const snap = await getDoc(userRef);
+    if (!snap.exists()) return false;
+    const data = snap.data() as any;
+    return data.editRestricted === true;
+};
+
 export const fetchFavoriteShuttleKeys = async (uid: string) => {
     const favoritesRef = collection(db, 'users', uid, 'favoriteShuttles');
     const snapshot = await getDocs(favoritesRef);
@@ -325,12 +493,13 @@ export const fetchShuttleReviews = async (stationId: string, shuttleId: string) 
 };
 
 export const addShuttleReview = async (stationId: string, shuttleId: string, payload: ShuttleReviewPayload) => {
+    const userNickname = await getShuttlecockNickname(payload.userId, '익명');
     const reviewsRef = collection(db, 'stations', stationId, 'shuttles', shuttleId, 'reviews');
     await addDoc(reviewsRef, {
         content: payload.content,
         userId: payload.userId,
-        userNickname: payload.userNickname,
+        userNickname,
         createdAt: serverTimestamp()
     });
-    return { success: true };
+    return { success: true, userNickname };
 };

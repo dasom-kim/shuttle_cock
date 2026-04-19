@@ -1,12 +1,14 @@
 import React, {useEffect, useRef, useState} from 'react';
 import EditRequestModal from "../components/EditRequestModal";
 import ShuttleReviewsModal from '../components/ShuttleReviewsModal';
+import ShuttleHistoryModal from '../components/ShuttleHistoryModal';
 import { useAuth } from '../hooks/useAuth';
 import { useFeedback } from './feedback/FeedbackProvider';
 import {
     buildFavoriteShuttleKey,
     fetchFavoriteShuttleKeys,
     fetchShuttleReviewCount,
+    isUserEditRestricted,
     toggleFavoriteShuttle
 } from '../services/shuttleService';
 
@@ -36,10 +38,11 @@ interface StationDetailSheetProps {
     onClose: () => void;
     onAddShuttle: () => void;
     onSelectShuttleRoute: (shuttle: Shuttle) => void;
+    onDataChanged?: () => void | Promise<void>;
 }
 
 const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
-                                                                   isOpen, stationId, resetKey, stationName, shuttles, onClose, onAddShuttle, onSelectShuttleRoute
+                                                                   isOpen, stationId, resetKey, stationName, shuttles, onClose, onAddShuttle, onSelectShuttleRoute, onDataChanged
                                                                }) => {
     const COLLAPSED_PEEK_HEIGHT = 38;
     const getDefaultSheetHeight = () => {
@@ -56,6 +59,9 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
     const [isReviewsModalOpen, setIsReviewsModalOpen] = useState(false);
     const [reviewTargetShuttle, setReviewTargetShuttle] = useState<Shuttle | null>(null);
     const [reviewCountByKey, setReviewCountByKey] = useState<Record<string, number>>({});
+    const [isHistoryModalOpen, setIsHistoryModalOpen] = useState(false);
+    const [historyTargetShuttle, setHistoryTargetShuttle] = useState<Shuttle | null>(null);
+    const [isEditRestricted, setIsEditRestricted] = useState(false);
     const [favoriteShuttleKeys, setFavoriteShuttleKeys] = useState<Set<string>>(new Set());
     const [favoritePendingKeys, setFavoritePendingKeys] = useState<Set<string>>(new Set());
     const [companyFilter, setCompanyFilter] = useState('all');
@@ -88,6 +94,14 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
     });
 
     const handleOpenEdit = (shuttle: any) => {
+        if (!user) {
+            showToast('수정은 로그인 후 이용할 수 있어요.', 'info');
+            return;
+        }
+        if (isEditRestricted) {
+            showToast('신고 누적으로 수정 기능이 제한되었어요.', 'error');
+            return;
+        }
         setTargetShuttle(shuttle);
         setIsEditModalOpen(true);
     };
@@ -212,6 +226,28 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
             })
             .catch((error) => {
                 console.error('즐겨찾기 조회 실패:', error);
+            });
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [isOpen, user]);
+
+    useEffect(() => {
+        if (!isOpen || !user) {
+            setIsEditRestricted(false);
+            return;
+        }
+
+        let isCancelled = false;
+        void isUserEditRestricted(user.uid)
+            .then((restricted) => {
+                if (!isCancelled) {
+                    setIsEditRestricted(restricted);
+                }
+            })
+            .catch((error) => {
+                console.error('수정 제한 여부 조회 실패:', error);
             });
 
         return () => {
@@ -445,12 +481,23 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                     >
                         수정
                     </button>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setOpenedSwipeKey(null);
+                            setHistoryTargetShuttle(shuttle);
+                            setIsHistoryModalOpen(true);
+                        }}
+                        style={swipeHistoryButtonStyle}
+                    >
+                        히스토리
+                    </button>
                 </div>
                 <div
                     style={{
                         ...shuttleItemStyle,
                         opacity: isEnabled ? 1 : 0.6,
-                        transform: isSwipeOpened ? 'translateX(-74px)' : 'translateX(0)',
+                        transform: isSwipeOpened ? 'translateX(-148px)' : 'translateX(0)',
                         transition: 'transform 0.2s ease'
                     }}
                 >
@@ -695,7 +742,11 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
 
                         <EditRequestModal
                             isOpen={isEditModalOpen}
-                            onClose={() => setIsEditModalOpen(false)}
+                            onClose={() => {
+                                setIsEditModalOpen(false);
+                                setTargetShuttle(null);
+                            }}
+                            onApplied={onDataChanged}
                             stationId={targetShuttle?.stationId || stationId}
                             shuttle={targetShuttle}
                             user={user}
@@ -714,6 +765,12 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                                     [key]: nextCount
                                 }));
                             }}
+                        />
+                        <ShuttleHistoryModal
+                            isOpen={isHistoryModalOpen}
+                            onClose={() => setIsHistoryModalOpen(false)}
+                            shuttle={historyTargetShuttle}
+                            user={user}
                         />
                     </>
                 )}
@@ -752,7 +809,7 @@ const swipeActionRailStyle: React.CSSProperties = {
     position: 'absolute',
     top: 0,
     right: 0,
-    width: '74px',
+    width: '148px',
     height: '100%',
     backgroundColor: '#EF4444',
     display: 'flex',
@@ -760,10 +817,23 @@ const swipeActionRailStyle: React.CSSProperties = {
     justifyContent: 'center'
 };
 const swipeEditButtonStyle: React.CSSProperties = {
+    width: '74px',
+    height: '100%',
     border: 'none',
-    background: 'transparent',
+    background: '#EF4444',
     color: '#FFFFFF',
     fontSize: '0.92rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    padding: 0
+};
+const swipeHistoryButtonStyle: React.CSSProperties = {
+    width: '74px',
+    height: '100%',
+    border: 'none',
+    background: '#E5E7EB',
+    color: '#374151',
+    fontSize: '0.86rem',
     fontWeight: 700,
     cursor: 'pointer',
     padding: 0

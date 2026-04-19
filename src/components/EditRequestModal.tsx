@@ -1,16 +1,17 @@
 import React, { useState, useEffect } from 'react';
-import { submitShuttleRequest } from '../services/shuttleService';
+import { applyShuttleUpdate, isUserEditRestricted } from '../services/shuttleService';
 import { useFeedback } from './feedback/FeedbackProvider';
 
 interface EditRequestModalProps {
     isOpen: boolean;
     onClose: () => void;
+    onApplied?: () => void | Promise<void>;
     stationId?: string;
     shuttle: any; // 현재 선택된 셔틀 정보
     user: any;
 }
 
-const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, stationId, shuttle, user }) => {
+const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, onApplied, stationId, shuttle, user }) => {
     const { showToast } = useFeedback();
     const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
     const [boardingTime, setBoardingTime] = useState('');
@@ -20,10 +21,19 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, st
 
     // 모달이 열릴 때 현재 값을 초기값으로 세팅
     useEffect(() => {
-        if (shuttle) {
+        if (isOpen && shuttle) {
             setBoardingTime(shuttle.boardingTime || shuttle.time || '');
             setAlightingTime(shuttle.alightingTime || shuttle.time || '');
             setCongestion(shuttle.congestion || '보통');
+            setIsDelete(false);
+            return;
+        }
+
+        // 모달이 닫히면 입력 상태 초기화
+        if (!isOpen) {
+            setBoardingTime('');
+            setAlightingTime('');
+            setCongestion('보통');
             setIsDelete(false);
         }
     }, [shuttle, isOpen]);
@@ -32,6 +42,11 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, st
 
     const boardingTimeLabel = shuttle.type === 'leave' ? '회사 승차 시간' : '정류장 승차 시간';
     const alightingTimeLabel = shuttle.type === 'leave' ? '정류장 하차 시간' : '회사 하차 시간';
+    const toMinutes = (value: string) => {
+        const [hour, minute] = value.split(':').map(Number);
+        if (!Number.isFinite(hour) || !Number.isFinite(minute)) return NaN;
+        return hour * 60 + minute;
+    };
 
     const handleSubmit = async () => {
         if (!user) {
@@ -42,33 +57,36 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, st
             showToast("정류장 정보를 확인할 수 없어 요청을 보낼 수 없어요.", 'error');
             return;
         }
-
-        const requestData = {
-            type: isDelete ? 'DELETE' : 'EDIT',
-            stationId: stationId,
-            shuttleId: shuttle.id,
-            currentData: {
-                name: shuttle.name,
-                boardingTime: shuttle.boardingTime || shuttle.time,
-                alightingTime: shuttle.alightingTime || shuttle.time,
-                congestion: shuttle.congestion
-            },
-            requestedData: isDelete ? null : {
-                name: shuttle.name,
-                boardingTime: boardingTime,
-                alightingTime: alightingTime,
-                congestion: congestion
-            },
-            requestedBy: user.uid,
-            userNickname: user.displayName || '익명'
-        };
+        if (!isDelete && toMinutes(boardingTime) >= toMinutes(alightingTime)) {
+            showToast('승차 시간과 하차 시간을 확인해 주세요.', 'error');
+            return;
+        }
 
         try {
-            await submitShuttleRequest(requestData);
-            showToast("수정 요청이 접수됐어요. 확인 후 빠르게 반영할게요.", 'success');
+            const restricted = await isUserEditRestricted(user.uid);
+            if (restricted) {
+                showToast("신고 누적으로 수정 기능이 제한되었어요.", 'error');
+                return;
+            }
+
+            await applyShuttleUpdate(stationId, shuttle.id, {
+                boardingTime,
+                alightingTime,
+                congestion,
+                isDelete,
+                changedByUid: user.uid,
+                beforeData: {
+                    boardingTime: shuttle.boardingTime || shuttle.time || '',
+                    alightingTime: shuttle.alightingTime || shuttle.time || '',
+                    congestion: shuttle.congestion || '보통',
+                    enable: shuttle.enable !== false
+                }
+            });
+            await onApplied?.();
+            showToast(isDelete ? '운행 중단으로 바로 반영했어요.' : '수정 내용이 바로 반영됐어요.', 'success');
             onClose();
         } catch (error) {
-            showToast("요청을 보내는 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.", 'error');
+            showToast("수정 반영 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.", 'error');
         }
     };
 
@@ -148,7 +166,7 @@ const EditRequestModal: React.FC<EditRequestModalProps> = ({ isOpen, onClose, st
 
                 <div style={buttonGroupStyle}>
                     <button onClick={onClose} style={cancelButtonStyle}>취소</button>
-                    <button onClick={handleSubmit} style={submitButtonStyle}>요청</button>
+                    <button onClick={handleSubmit} style={submitButtonStyle}>적용</button>
                 </div>
             </div>
         </div>

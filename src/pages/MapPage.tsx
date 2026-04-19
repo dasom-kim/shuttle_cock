@@ -4,7 +4,8 @@ import Toggle from '../components/Toggle';
 import FloatingMenu from '../components/FloatingMenu';
 import LoginModal from '../components/LoginModal';
 import AddShuttleModal from '../components/AddShuttleModal'; // 모달 임포트
-import { saveShuttleInfo, fetchAllStations } from '../services/shuttleService';
+import NicknameSetupModal from '../components/NicknameSetupModal';
+import { getShuttlecockNickname, saveShuttleInfo, setShuttlecockNickname, fetchAllStations } from '../services/shuttleService';
 import StationDetailSheet from "../components/StationDetailSheet"; // 저장 서비스 임포트
 import { useFeedback } from '../components/feedback/FeedbackProvider';
 import { reverseGeocodeNcloud } from '../services/geocodeService';
@@ -19,6 +20,9 @@ const INVALID_STATION_NAME_PATTERNS = [
     /^정류장\s*명칭\s*불러오는\s*중/i,
     /^정보\s*없음$/i
 ];
+
+const NICKNAME_ADJECTIVES = ['빠른', '산뜻한', '든든한', '반짝이는', '기분좋은', '재치있는', '믿음직한', '귀여운'];
+const NICKNAME_NOUNS = ['셔틀러', '탑승객', '출근러', '퇴근러', '버스메이트', '셔틀메이트', '셔틀요정', '라이더'];
 
 
 // 커스텀 마커 아이콘 생성 함수
@@ -65,6 +69,8 @@ const MapPage = () => {
     const [isDetailOpen, setIsDetailOpen] = useState(false);
     const [detailSheetResetKey, setDetailSheetResetKey] = useState(0);
     const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const [isNicknameModalOpen, setIsNicknameModalOpen] = useState(false);
+    const [suggestedNickname, setSuggestedNickname] = useState('');
 
     const mapRef = useRef<naver.maps.Map | null>(null);
     const markersRef = useRef<naver.maps.Marker[]>([]);
@@ -74,6 +80,14 @@ const MapPage = () => {
     const routeInfoWindowsRef = useRef<naver.maps.InfoWindow[]>([]);
     const ignoreNextMapClickRef = useRef(false);
     const mapClickIgnoreTimerRef = useRef<number | null>(null);
+    const checkedNicknameUidRef = useRef<string | null>(null);
+
+    const createRandomNickname = useCallback(() => {
+        const adjective = NICKNAME_ADJECTIVES[Math.floor(Math.random() * NICKNAME_ADJECTIVES.length)];
+        const noun = NICKNAME_NOUNS[Math.floor(Math.random() * NICKNAME_NOUNS.length)];
+        const tail = Math.floor(100 + Math.random() * 900);
+        return `${adjective} ${noun}${tail}`;
+    }, []);
 
     const isValidStationName = useCallback((value: string) => {
         const normalized = value.trim();
@@ -136,6 +150,36 @@ const MapPage = () => {
         clearMapClickIgnoreTimer();
         ignoreNextMapClickRef.current = false;
     }, [clearMapClickIgnoreTimer]);
+
+    useEffect(() => {
+        if (!user?.uid) {
+            checkedNicknameUidRef.current = null;
+            setIsNicknameModalOpen(false);
+            return;
+        }
+
+        if (checkedNicknameUidRef.current === user.uid) return;
+        checkedNicknameUidRef.current = user.uid;
+
+        let isCancelled = false;
+        const fallbackNickname = createRandomNickname();
+        setSuggestedNickname(fallbackNickname);
+
+        void getShuttlecockNickname(user.uid, '')
+            .then((nickname) => {
+                if (isCancelled) return;
+                if (!nickname.trim()) {
+                    setIsNicknameModalOpen(true);
+                }
+            })
+            .catch((error) => {
+                console.error('닉네임 조회 실패:', error);
+            });
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [user?.uid, createRandomNickname]);
 
     const clearRouteOverlays = useCallback(() => {
         destinationMarkersRef.current.forEach((marker) => marker.setMap(null));
@@ -580,6 +624,19 @@ const MapPage = () => {
                 shuttles={selectedStation?.shuttles || []}
                 onAddShuttle={handleAddShuttleFromSheet}
                 onSelectShuttleRoute={handleSelectShuttleRoute}
+                onDataChanged={loadData}
+            />
+
+            <NicknameSetupModal
+                isOpen={isNicknameModalOpen}
+                suggestedNickname={suggestedNickname}
+                onSubmit={async (nickname) => {
+                    if (!user?.uid) return;
+                    const finalNickname = nickname.trim() || suggestedNickname;
+                    await setShuttlecockNickname(user.uid, finalNickname);
+                    setIsNicknameModalOpen(false);
+                    showToast(`닉네임이 '${finalNickname}'(으)로 설정됐어요.`, 'success');
+                }}
             />
         </div>
     );
