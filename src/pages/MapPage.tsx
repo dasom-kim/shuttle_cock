@@ -267,6 +267,9 @@ const MapPage = () => {
                     ignoreNextMapClickRef.current = false;
                     mapClickIgnoreTimerRef.current = null;
                 }, 250);
+                if (isFavOpen) {
+                    setIsFavOpen(false);
+                }
                 clearRouteOverlays();
                 map.setCenter(new window.naver.maps.LatLng(station.lat, station.lng));
                 map.setZoom(MARKER_FOCUS_ZOOM, true);
@@ -289,7 +292,7 @@ const MapPage = () => {
             marker.set('stationType', station.type);
             markersRef.current.push(marker);
         });
-    }, [stations, filter, getOfficialStationName, selectedMarkerStationId, clearMapClickIgnoreTimer]); // stations나 filter가 바뀔 때마다 실행
+    }, [stations, filter, getOfficialStationName, selectedMarkerStationId, clearMapClickIgnoreTimer, clearRouteOverlays, isFavOpen]); // stations나 filter가 바뀔 때마다 실행
 
     useEffect(() => {
         return () => {
@@ -585,7 +588,16 @@ const MapPage = () => {
                         showToast("로그인 후 이용해 주세요.", 'info');
                         return;
                     }
-                    setIsFavOpen((prev) => !prev);
+                    setIsFavOpen((prev) => {
+                        const next = !prev;
+                        if (next) {
+                            setIsDetailOpen(false);
+                            setSelectedStation(null);
+                            setSelectedMarkerStationId(null);
+                            clearRouteOverlays();
+                        }
+                        return next;
+                    });
                 }}
             />
 

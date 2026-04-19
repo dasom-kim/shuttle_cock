@@ -47,6 +47,7 @@ interface FavoriteShuttlePayload {
 
 export interface FavoriteShuttleItem {
     id: string;
+    favoriteKey: string;
     stationId: string;
     shuttleId: string;
     name: string;
@@ -55,7 +56,13 @@ export interface FavoriteShuttleItem {
     boardingTime?: string;
     alightingTime?: string;
     createdAt?: any;
+    sortOrder?: number;
     stationName?: string;
+}
+
+export interface FavoriteShuttleOrderItem {
+    favoriteKey: string;
+    sortOrder: number;
 }
 
 interface ShuttleReviewPayload {
@@ -469,13 +476,13 @@ export const fetchFavoriteShuttleKeys = async (uid: string) => {
 
 export const fetchFavoriteShuttles = async (uid: string): Promise<FavoriteShuttleItem[]> => {
     const favoritesRef = collection(db, 'users', uid, 'favoriteShuttles');
-    const favoritesQuery = query(favoritesRef, orderBy('createdAt', 'desc'));
-    const snapshot = await getDocs(favoritesQuery);
+    const snapshot = await getDocs(favoritesRef);
 
     const items = snapshot.docs.map((favoriteDoc) => {
         const data = favoriteDoc.data() as any;
         return {
             id: favoriteDoc.id,
+            favoriteKey: favoriteDoc.id,
             stationId: data.stationId || '',
             shuttleId: data.shuttleId || '',
             name: data.name || '',
@@ -483,7 +490,8 @@ export const fetchFavoriteShuttles = async (uid: string): Promise<FavoriteShuttl
             type: data.type === 'leave' ? 'leave' : 'work',
             boardingTime: data.boardingTime || '',
             alightingTime: data.alightingTime || '',
-            createdAt: data.createdAt
+            createdAt: data.createdAt,
+            sortOrder: Number.isFinite(data.sortOrder) ? data.sortOrder : Number.MAX_SAFE_INTEGER
         } as FavoriteShuttleItem;
     }).filter((item) => !!item.stationId && !!item.shuttleId);
 
@@ -508,7 +516,14 @@ export const fetchFavoriteShuttles = async (uid: string): Promise<FavoriteShuttl
     return items.map((item) => ({
         ...item,
         stationName: stationNameMap.get(item.stationId) || '정류장 정보'
-    }));
+    })).sort((a, b) => {
+        if (a.sortOrder !== b.sortOrder) {
+            return (a.sortOrder || Number.MAX_SAFE_INTEGER) - (b.sortOrder || Number.MAX_SAFE_INTEGER);
+        }
+        const aTime = a.createdAt?.toMillis?.() || 0;
+        const bTime = b.createdAt?.toMillis?.() || 0;
+        return bTime - aTime;
+    });
 };
 
 export const toggleFavoriteShuttle = async (uid: string, shuttle: FavoriteShuttlePayload) => {
@@ -533,9 +548,38 @@ export const toggleFavoriteShuttle = async (uid: string, shuttle: FavoriteShuttl
         type: shuttle.type,
         boardingTime: shuttle.boardingTime || '',
         alightingTime: shuttle.alightingTime || '',
+        sortOrder: Date.now(),
         createdAt: serverTimestamp()
     });
     return { isFavorite: true };
+};
+
+export const fetchFavoriteShuttleOrderItems = async (uid: string): Promise<FavoriteShuttleOrderItem[]> => {
+    const favoritesRef = collection(db, 'users', uid, 'favoriteShuttles');
+    const snapshot = await getDocs(favoritesRef);
+
+    const items = snapshot.docs.map((favoriteDoc) => {
+        const data = favoriteDoc.data() as any;
+        return {
+            favoriteKey: favoriteDoc.id,
+            sortOrder: Number.isFinite(data?.sortOrder) ? data.sortOrder : Number.MAX_SAFE_INTEGER
+        };
+    });
+
+    items.sort((a, b) => a.sortOrder - b.sortOrder);
+    return items;
+};
+
+export const updateFavoriteShuttleOrder = async (uid: string, orderedFavoriteKeys: string[]) => {
+    const baseOrder = Date.now();
+    await Promise.all(
+        orderedFavoriteKeys.map((favoriteKey, index) => {
+            const favoriteRef = doc(db, 'users', uid, 'favoriteShuttles', favoriteKey);
+            return updateDoc(favoriteRef, {
+                sortOrder: baseOrder + index
+            });
+        })
+    );
 };
 
 export const fetchShuttleReviewCount = async (stationId: string, shuttleId: string) => {

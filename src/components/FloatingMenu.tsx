@@ -65,12 +65,14 @@ const FloatingMenu: React.FC<FloatingMenuProps> = ({
                             if (!user) {
                                 showToast("로그인 후 이용해 주세요.", 'info');
                             } else {
-                                onToggleRanking();
+                                showToast("랭킹 기능은 준비중이에요.", 'info');
                             }
                         }}
-                        style={user ? { ...menuItemStyle, color: isRankingOpen ? '#8B5CF6' : '#4B5563' } : disabledMenuItemStyle}
+                        style={user
+                            ? { ...menuItemStyle, color: '#6B7280', backgroundColor: '#F3F4F6', border: '1px solid #E5E7EB' }
+                            : disabledMenuItemStyle}
                     >
-                        {user ? '🏆 랭킹' : '🔒 랭킹'}
+                        {user ? '⚠️ 랭킹' : '🔒 랭킹'}
                     </button>
 
                     <button
