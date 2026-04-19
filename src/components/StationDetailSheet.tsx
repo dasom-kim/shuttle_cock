@@ -487,11 +487,13 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                     <button
                         type="button"
                         onClick={() => {
-                            if (!canEditAction) return;
+                            if (!canEditAction) {
+                                showToast('로그인 후 이용해 주세요.', 'info');
+                                return;
+                            }
                             handleOpenEdit(shuttle);
                         }}
                         style={swipeEditButtonStyle(!canEditAction)}
-                        disabled={!canEditAction}
                     >
                         {canEditAction ? '수정' : '🔒 수정'}
                     </button>
@@ -806,20 +808,23 @@ const congestionBadgeStyle = (status: string): React.CSSProperties => {
     return {
         backgroundColor: bgColor,
         color: textColor,
-        padding: '4px 10px',
+        padding: '4px 8px',
         borderRadius: '12px',
         border: 'none',
-        fontSize: '0.85rem',
+        fontSize: 'clamp(11px, 2.8vw, 13px)',
         fontWeight: 'bold',
         whiteSpace: 'nowrap'
     };
 };
 
-const itemTopStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' };
+const itemTopStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' };
 const swipeWrapperStyle: React.CSSProperties = {
     position: 'relative',
     overflow: 'hidden',
-    borderRadius: '12px'
+    borderRadius: '12px',
+    touchAction: 'pan-y',
+    WebkitUserSelect: 'none',
+    userSelect: 'none'
 };
 const swipeActionRailStyle = (width: number): React.CSSProperties => ({
     position: 'absolute',
@@ -879,7 +884,7 @@ const reviewTriggerButtonStyle: React.CSSProperties = {
     border: 'none',
     background: 'transparent',
     color: '#4B5563',
-    fontSize: '0.82rem',
+    fontSize: 'clamp(11px, 2.7vw, 13px)',
     fontWeight: 700,
     cursor: 'pointer',
     display: 'inline-flex',
@@ -887,10 +892,17 @@ const reviewTriggerButtonStyle: React.CSSProperties = {
     gap: '4px',
     padding: '0 2px'
 };
-const rightAlignContainerStyle: React.CSSProperties = { marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'nowrap' };
-const infoRowStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px' };
-const stationNameLabelStyle: React.CSSProperties = { fontSize: '0.9rem', color: '#4B5563' };
-const timestampStyle: React.CSSProperties = { fontSize: '0.8rem', color: '#9CA3AF' };
+const rightAlignContainerStyle: React.CSSProperties = {
+    marginLeft: 'auto',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end'
+};
+const infoRowStyle: React.CSSProperties = { display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '4px', gap: '8px', flexWrap: 'wrap' };
+const stationNameLabelStyle: React.CSSProperties = { fontSize: 'clamp(12px, 3.1vw, 14px)', color: '#4B5563' };
+const timestampStyle: React.CSSProperties = { fontSize: 'clamp(11px, 2.7vw, 12.5px)', color: '#9CA3AF' };
 const sheetOverlayStyle: React.CSSProperties = { position: 'fixed', bottom: 0, left: 0, width: '100%', height: 'auto', zIndex: 3000 };
 const sheetContentStyle = (height: number | null, isCollapsed: boolean): React.CSSProperties => ({
     backgroundColor: 'white',
@@ -1064,7 +1076,7 @@ const listContainerStyle: React.CSSProperties = { display: 'flex', flexDirection
 const sectionStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: '8px' };
 const sectionTitleStyle: React.CSSProperties = {
     margin: '10px 0',
-    fontSize: '16px',
+    fontSize: 'clamp(13px, 3.4vw, 16px)',
     fontWeight: 700,
     color: '#1F2937'
 };
@@ -1078,7 +1090,7 @@ const shuttleItemStyle: React.CSSProperties = {
     alignItems: 'stretch'
 };
 const shuttleContentStyle: React.CSSProperties = { flex: 1, padding: '15px' };
-const shuttleTitleStyle: React.CSSProperties = { fontWeight: 'bold', color: '#1F2937', fontSize: '1rem' };
+const shuttleTitleStyle: React.CSSProperties = { fontWeight: 'bold', color: '#1F2937', fontSize: 'clamp(14px, 3.6vw, 16px)', lineHeight: 1.25 };
 const shuttleTitleButtonStyle: React.CSSProperties = {
     ...shuttleTitleStyle,
     border: 'none',
@@ -1088,8 +1100,15 @@ const shuttleTitleButtonStyle: React.CSSProperties = {
     cursor: 'pointer',
     textAlign: 'left'
 };
-const typeBadgeStyle = (type: string): React.CSSProperties => ({ fontSize: '0.75rem', padding: '2px 6px', borderRadius: '4px', backgroundColor: type === 'work' ? '#DBEAFE' : '#FEF3C7', color: type === 'work' ? '#1E40AF' : '#92400E', whiteSpace: 'nowrap' });
-const timeStyle: React.CSSProperties = { fontSize: '0.9rem', color: '#6B7280', marginLeft: 'auto', whiteSpace: 'nowrap' };
+const typeBadgeStyle = (type: string): React.CSSProperties => ({
+    fontSize: 'clamp(11px, 2.7vw, 12px)',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    backgroundColor: type === 'work' ? '#DBEAFE' : '#FEF3C7',
+    color: type === 'work' ? '#1E40AF' : '#92400E',
+    whiteSpace: 'nowrap'
+});
+const timeStyle: React.CSSProperties = { fontSize: 'clamp(12px, 3.1vw, 14px)', color: '#6B7280', marginLeft: 'auto', whiteSpace: 'nowrap' };
 const suspendedBadgeStyle: React.CSSProperties = { fontSize: '0.75rem', color: '#EF4444', marginTop: '5px', fontWeight: 'bold' };
 const emptyStateStyle: React.CSSProperties = { textAlign: 'center', color: '#9CA3AF', fontSize: '0.9rem', padding: '16px 0' };
 

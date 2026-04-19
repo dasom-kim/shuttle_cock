@@ -438,8 +438,7 @@ const MapPage = () => {
         if (isAddMode) {
             clickListener = window.naver.maps.Event.addListener(mapRef.current, 'click', (e: naver.maps.PointerEvent) => {
                 if (!user) {
-                    showToast("정류장 추가는 로그인 후 이용할 수 있어요", 'info');
-                    setIsLoginModalOpen(true);
+                    showToast("로그인 후 이용해 주세요.", 'info');
                     return;
                 }
 
@@ -489,8 +488,7 @@ const MapPage = () => {
     const handleAddShuttleFromSheet = async () => {
         if (!selectedStation) return;
         if (!user) {
-            showToast("정류장 추가는 로그인 후 이용할 수 있어요", 'info');
-            setIsLoginModalOpen(true);
+            showToast("로그인 후 이용해 주세요.", 'info');
             return;
         }
 
@@ -573,7 +571,6 @@ const MapPage = () => {
                 onToggleAddStation={() => {
                     if (!user) {
                         showToast("로그인 후 이용해 주세요.", 'info');
-                        setIsLoginModalOpen(true);
                         return;
                     }
                     setIsAddMode((prev) => !prev);

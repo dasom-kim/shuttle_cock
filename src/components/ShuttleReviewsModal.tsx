@@ -85,7 +85,7 @@ const ShuttleReviewsModal: React.FC<ShuttleReviewsModalProps> = ({
 
     const handleSubmit = async () => {
         if (!user) {
-            showToast('탑승 후기는 로그인 후 작성할 수 있어요.', 'info');
+            showToast('로그인 후 이용해 주세요.', 'info');
             return;
         }
         if (!shuttle.stationId) {
@@ -173,8 +173,7 @@ const ShuttleReviewsModal: React.FC<ShuttleReviewsModalProps> = ({
                     <button
                         type="button"
                         onClick={() => void handleSubmit()}
-                        disabled={isSubmitting || !user}
-                        style={submitButtonStyle(isSubmitting || !user)}
+                        style={submitButtonStyle(isSubmitting)}
                     >
                         {isSubmitting ? '등록 중...' : (user ? '후기 남기기' : '🔒 후기 남기기')}
                     </button>
