@@ -383,7 +383,7 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({
                     <button
                         onClick={handleSave}
                         style={saveButtonStyle}
-                    >정보 저장하기</button>
+                    >저장</button>
                 </div>
             </div>
         </div>
@@ -506,7 +506,7 @@ const timeCellStyle: React.CSSProperties = { display: 'flex', flexDirection: 'co
 const timeLabelStyle: React.CSSProperties = { fontSize: '1rem', color: '#111827', fontWeight: 500 };
 const activeButtonStyle: React.CSSProperties = { flex: 1, padding: '10px', backgroundColor: '#8B5CF6', color: 'white', borderRadius: '8px', border: 'none' };
 const inactiveButtonStyle: React.CSSProperties = { flex: 1, padding: '10px', backgroundColor: '#F3F4F6', color: '#4B5563', borderRadius: '8px', border: 'none' };
-const saveButtonStyle: React.CSSProperties = { flex: 2, padding: '12px', backgroundColor: '#8B5CF6', color: 'white', borderRadius: '8px', border: 'none', fontWeight: 'bold' };
+const saveButtonStyle: React.CSSProperties = { flex: 1, padding: '12px', backgroundColor: '#8B5CF6', color: 'white', borderRadius: '8px', border: 'none', fontWeight: 'bold' };
 const cancelButtonStyle: React.CSSProperties = { flex: 1, padding: '12px', backgroundColor: '#F3F4F6', color: '#4B5563', borderRadius: '8px', border: 'none' };
 
 export default AddShuttleModal;

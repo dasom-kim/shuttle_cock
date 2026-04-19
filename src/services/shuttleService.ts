@@ -13,6 +13,7 @@ import {
 import { getDistance } from '../utils/mapUtils';
 
 const STATION_POSITION_MERGE_RADIUS_METERS = 1;
+const METERS_PER_LAT_DEGREE = 111320;
 
 export interface ShuttleData {
     name: string;
@@ -152,6 +153,91 @@ export const fetchAllStations = async () => {
     } catch (error) {
         console.error("데이터 조회 실패:", error);
         throw error; // 에러를 던져서 UI 단에서 처리할 수 있게 함
+    }
+};
+
+interface StationBounds {
+    south: number;
+    west: number;
+    north: number;
+    east: number;
+}
+
+const isLngInBounds = (lng: number, west: number, east: number) => {
+    // anti-meridian 케이스도 안전하게 처리
+    if (west <= east) {
+        return lng >= west && lng <= east;
+    }
+    return lng >= west || lng <= east;
+};
+
+const isInBounds = (lat: number, lng: number, bounds: StationBounds) => {
+    return lat >= bounds.south &&
+        lat <= bounds.north &&
+        isLngInBounds(lng, bounds.west, bounds.east);
+};
+
+const expandBounds = (bounds: StationBounds, paddingMeters: number): StationBounds => {
+    const centerLat = (bounds.south + bounds.north) / 2;
+    const latPadding = paddingMeters / METERS_PER_LAT_DEGREE;
+    const safeCos = Math.max(Math.cos((centerLat * Math.PI) / 180), 0.0001);
+    const lngPadding = paddingMeters / (METERS_PER_LAT_DEGREE * safeCos);
+
+    return {
+        south: bounds.south - latPadding,
+        west: bounds.west - lngPadding,
+        north: bounds.north + latPadding,
+        east: bounds.east + lngPadding
+    };
+};
+
+export const fetchStationsInBounds = async (bounds: StationBounds, paddingMeters = 400) => {
+    try {
+        const stationsRef = collection(db, 'stations');
+        const stationSnapshot = await getDocs(stationsRef);
+        const expandedBounds = expandBounds(bounds, paddingMeters);
+
+        const targetStationDocs = stationSnapshot.docs.filter((stationDoc) => {
+            const station = stationDoc.data();
+            return isInBounds(station.lat, station.lng, expandedBounds);
+        });
+
+        const stationsData = [];
+
+        for (const stationDoc of targetStationDocs) {
+            const station = stationDoc.data();
+            const stationId = stationDoc.id;
+
+            const shuttlesRef = collection(db, 'stations', stationId, 'shuttles');
+            const shuttleSnapshot = await getDocs(shuttlesRef);
+            const shuttles = shuttleSnapshot.docs.map(doc => ({
+                id: doc.id,
+                stationId,
+                ...doc.data()
+            }));
+
+            const hasWork = shuttles.some((s: any) => s.type === 'work');
+            const hasLeave = shuttles.some((s: any) => s.type === 'leave');
+
+            let markerType = 'none';
+            if (hasWork && hasLeave) markerType = 'both';
+            else if (hasWork) markerType = 'go';
+            else if (hasLeave) markerType = 'leave';
+
+            stationsData.push({
+                id: stationId,
+                lat: station.lat,
+                lng: station.lng,
+                stationName: station.stationName || '',
+                type: markerType,
+                shuttles
+            });
+        }
+
+        return stationsData;
+    } catch (error) {
+        console.error("영역 기반 데이터 조회 실패:", error);
+        throw error;
     }
 };
 

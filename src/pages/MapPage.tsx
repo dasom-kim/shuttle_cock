@@ -63,6 +63,8 @@ const MapPage = () => {
     const [selectedStation, setSelectedStation] = useState<any>(null);
     const [selectedMarkerStationId, setSelectedMarkerStationId] = useState<string | null>(null);
     const [isDetailOpen, setIsDetailOpen] = useState(false);
+    const [detailSheetResetKey, setDetailSheetResetKey] = useState(0);
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
 
     const mapRef = useRef<naver.maps.Map | null>(null);
     const markersRef = useRef<naver.maps.Marker[]>([]);
@@ -102,25 +104,26 @@ const MapPage = () => {
     }, [stations, isValidStationName]);
 
     /**
-     * ✨ Firestore에서 최신 데이터를 가져와 상태를 업데이트하는 함수
+     * ✨ Firestore에서 전체 정류장 데이터를 가져와 상태를 업데이트하는 함수
      */
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         try {
-            const data = await fetchAllStations(); // 서비스에서 전체 데이터 호출
+            const data = await fetchAllStations();
             setStations(data);
 
             // 현재 상세창이 열려있다면(selectedStation이 있다면),
             // 전체 데이터 중 해당 정류장만 찾아 상세 정보도 최신화해줍니다.
-            if (selectedStation) {
-                const updated = data.find((s: any) => s.id === selectedStation.id);
-                if (updated) {
-                    setSelectedStation(updated);
-                }
-            }
+            setSelectedStation((prev: any) => {
+                if (!prev) return prev;
+                const updated = data.find((s: any) => s.id === prev.id);
+                return updated || prev;
+            });
         } catch (error) {
             console.error("데이터 로드 실패:", error);
+        } finally {
+            setIsInitialLoading(false);
         }
-    };
+    }, []);
 
     const clearMapClickIgnoreTimer = useCallback(() => {
         if (mapClickIgnoreTimerRef.current) {
@@ -172,7 +175,7 @@ const MapPage = () => {
         mapRef.current = new window.naver.maps.Map('map', mapOptions);
 
         // ✨ 데이터 불러오기 실행
-        loadData();
+        void loadData();
     }, []);
 
     // 2. stations 데이터가 업데이트되거나, filter가 바뀔 때 마커 다시 그리기
@@ -221,6 +224,7 @@ const MapPage = () => {
                 ));
                 const mergedShuttles = nearbyStations.flatMap((s: any) => s.shuttles || []);
                 setSelectedMarkerStationId(station.id || null);
+                setDetailSheetResetKey((prev) => prev + 1);
 
                 setSelectedStation({
                     ...station,
@@ -497,8 +501,7 @@ const MapPage = () => {
             setIsAddMode(false); // 저장 후 추가 모드 해제
 
             // 저장 성공 후 데이터를 다시 불러와서 지도를 최신화
-            const updatedData = await fetchAllStations();
-            setStations(updatedData);
+            await loadData();
         } catch (error) {
             console.error("저장 실패:", error);
             showToast("저장 중 문제가 생겼어요. 잠시 후 다시 시도해 주세요.", 'error');
@@ -521,6 +524,17 @@ const MapPage = () => {
             <Toggle filter={filter} setFilter={setFilter} />
 
             <div id="map" style={{ width: '100%', height: '100%', cursor: isAddMode ? 'crosshair' : 'default' }}></div>
+
+            {isInitialLoading && (
+                <div style={mapLoadingOverlayStyle}>
+                    <div style={mapLoadingCardStyle}>
+                        <div style={mapLoadingBarStyle}>
+                            <div style={mapLoadingBarFillStyle} />
+                        </div>
+                        <div style={mapLoadingTextStyle}>열심히 셔틀 정보를 찾고 있어요. 잠시만 기다려 주세요!</div>
+                    </div>
+                </div>
+            )}
 
             <FloatingMenu
                 user={user}
@@ -561,6 +575,7 @@ const MapPage = () => {
                     clearRouteOverlays();
                 }}
                 stationId={selectedStation?.id} // ⭐️ 이 stationId가 정확히 넘어가고 있는지 확인!
+                resetKey={detailSheetResetKey}
                 stationName={selectedStation?.stationName || '정류장 정보'}
                 shuttles={selectedStation?.shuttles || []}
                 onAddShuttle={handleAddShuttleFromSheet}
@@ -571,3 +586,49 @@ const MapPage = () => {
 };
 
 export default MapPage;
+
+const mapLoadingOverlayStyle: React.CSSProperties = {
+    position: 'absolute',
+    inset: 0,
+    zIndex: 2500,
+    backgroundColor: 'rgba(255, 255, 255, 0.68)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    pointerEvents: 'none'
+};
+
+const mapLoadingCardStyle: React.CSSProperties = {
+    backgroundColor: '#FFFFFF',
+    border: '1px solid #E5E7EB',
+    borderRadius: '14px',
+    boxShadow: '0 10px 24px rgba(15, 23, 42, 0.12)',
+    padding: '14px 16px',
+    minWidth: '240px',
+    maxWidth: '86vw'
+};
+
+const mapLoadingBarStyle: React.CSSProperties = {
+    position: 'relative',
+    height: '7px',
+    borderRadius: '999px',
+    backgroundColor: '#E5E7EB',
+    overflow: 'hidden'
+};
+
+const mapLoadingBarFillStyle: React.CSSProperties = {
+    width: '45%',
+    height: '100%',
+    borderRadius: '999px',
+    background: 'linear-gradient(90deg, #8B5CF6 0%, #60A5FA 100%)',
+    animation: 'map-loading-slide 1.2s ease-in-out infinite'
+};
+
+const mapLoadingTextStyle: React.CSSProperties = {
+    marginTop: '10px',
+    color: '#374151',
+    fontSize: '0.88rem',
+    fontWeight: 600,
+    textAlign: 'center',
+    lineHeight: 1.4
+};

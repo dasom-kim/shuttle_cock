@@ -24,6 +24,7 @@ interface Shuttle {
 interface StationDetailSheetProps {
     isOpen: boolean;
     stationId?: string;
+    resetKey?: number;
     stationName: string;
     shuttles: Shuttle[];
     onClose: () => void;
@@ -32,9 +33,15 @@ interface StationDetailSheetProps {
 }
 
 const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
-                                                                   isOpen, stationId, stationName, shuttles, onClose, onAddShuttle, onSelectShuttleRoute
+                                                                   isOpen, stationId, resetKey, stationName, shuttles, onClose, onAddShuttle, onSelectShuttleRoute
                                                                }) => {
     const COLLAPSED_PEEK_HEIGHT = 38;
+    const getDefaultSheetHeight = () => {
+        if (typeof window === 'undefined') return 360;
+        const viewportHeight = window.innerHeight;
+        const preferred = viewportHeight * 0.42;
+        return Math.max(300, Math.min(460, Math.round(preferred)));
+    };
     const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches;
     const { user } = useAuth();
     const { showToast } = useFeedback();
@@ -52,10 +59,24 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
     const [activePanel, setActivePanel] = useState<'none' | 'filter' | 'sort'>('none');
     const [sheetHeight, setSheetHeight] = useState<number | null>(null);
     const [isDraggingSheet, setIsDraggingSheet] = useState(false);
+    const [openedSwipeKey, setOpenedSwipeKey] = useState<string | null>(null);
     const sheetRef = useRef<HTMLDivElement | null>(null);
     const dragStartYRef = useRef(0);
     const dragStartHeightRef = useRef(0);
     const dragCurrentHeightRef = useRef(0);
+    const swipeStateRef = useRef<{
+        key: string | null;
+        startX: number;
+        startY: number;
+        lastDx: number;
+        tracking: boolean;
+    }>({
+        key: null,
+        startX: 0,
+        startY: 0,
+        lastDx: 0,
+        tracking: false
+    });
 
     const handleOpenEdit = (shuttle: any) => {
         setTargetShuttle(shuttle);
@@ -150,8 +171,17 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         if (!isOpen) {
             setSheetHeight(null);
             setIsDraggingSheet(false);
+            setOpenedSwipeKey(null);
         }
     }, [isOpen]);
+
+    useEffect(() => {
+        if (!isOpen) return;
+        setSheetHeight(getDefaultSheetHeight());
+        setIsDraggingSheet(false);
+        setActivePanel('none');
+        setOpenedSwipeKey(null);
+    }, [isOpen, stationId, resetKey]);
 
     useEffect(() => {
         if (!isOpen || !user) {
@@ -180,6 +210,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
 
         const minHeight = COLLAPSED_PEEK_HEIGHT;
         const maxHeight = window.innerHeight;
+        const defaultHeight = getDefaultSheetHeight();
 
         const handlePointerMove = (event: PointerEvent) => {
             const deltaY = dragStartYRef.current - event.clientY;
@@ -189,6 +220,12 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         };
 
         const stopDragging = () => {
+            if (dragCurrentHeightRef.current <= defaultHeight) {
+                setSheetHeight(COLLAPSED_PEEK_HEIGHT);
+                setActivePanel('none');
+                setIsDraggingSheet(false);
+                return;
+            }
             const threshold = window.innerHeight * 0.7;
             if (dragCurrentHeightRef.current >= threshold) {
                 setSheetHeight(window.innerHeight);
@@ -212,6 +249,13 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
 
         const target = event.target as HTMLElement | null;
         if (target?.closest('button, input, select, textarea, a, [data-no-sheet-drag="true"]')) {
+            return;
+        }
+
+        if (isCollapsed) {
+            setSheetHeight(getDefaultSheetHeight());
+            setActivePanel('none');
+            setIsDraggingSheet(false);
             return;
         }
 
@@ -266,23 +310,88 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         }
     };
 
+    const beginSwipe = (itemKey: string, event: React.PointerEvent<HTMLDivElement>) => {
+        swipeStateRef.current = {
+            key: itemKey,
+            startX: event.clientX,
+            startY: event.clientY,
+            lastDx: 0,
+            tracking: true
+        };
+    };
+
+    const moveSwipe = (event: React.PointerEvent<HTMLDivElement>) => {
+        const state = swipeStateRef.current;
+        if (!state.tracking) return;
+
+        const dx = event.clientX - state.startX;
+        const dy = event.clientY - state.startY;
+        state.lastDx = dx;
+
+        if (Math.abs(dx) > 6 && Math.abs(dx) > Math.abs(dy)) {
+            event.preventDefault();
+        }
+    };
+
+    const endSwipe = () => {
+        const state = swipeStateRef.current;
+        if (!state.tracking || !state.key) return;
+
+        if (state.lastDx <= -36) {
+            setOpenedSwipeKey(state.key);
+        } else if (state.lastDx >= 24) {
+            setOpenedSwipeKey(null);
+        }
+
+        swipeStateRef.current = {
+            key: null,
+            startX: 0,
+            startY: 0,
+            lastDx: 0,
+            tracking: false
+        };
+    };
+
     const renderShuttleItem = (shuttle: Shuttle, keyPrefix: string) => {
         const isEnabled = shuttle.enable !== false;
         const favoriteKey = shuttle.stationId ? buildFavoriteShuttleKey(shuttle.stationId, shuttle.id) : '';
         const isFavorite = favoriteKey ? favoriteShuttleKeys.has(favoriteKey) : false;
         const isFavoritePending = favoriteKey ? favoritePendingKeys.has(favoriteKey) : false;
+        const itemKey = `${keyPrefix}-${shuttle.stationId || 'unknown'}-${shuttle.id}`;
+        const isSwipeOpened = openedSwipeKey === itemKey;
 
         return (
             <div
-                key={`${keyPrefix}-${shuttle.stationId || 'unknown'}-${shuttle.id}`}
-                style={{
-                    ...shuttleItemStyle,
-                    opacity: isEnabled ? 1 : 0.6,
-                    position: 'relative'
-                }}
+                key={itemKey}
+                style={swipeWrapperStyle}
+                data-no-sheet-drag="true"
+                onPointerDown={(event) => beginSwipe(itemKey, event)}
+                onPointerMove={moveSwipe}
+                onPointerUp={endSwipe}
+                onPointerCancel={endSwipe}
             >
-                {user && (
-                    <div style={favoriteRailStyle}>
+                <div style={swipeActionRailStyle}>
+                    <button
+                        type="button"
+                        onClick={() => {
+                            setOpenedSwipeKey(null);
+                            handleOpenEdit(shuttle);
+                        }}
+                        style={swipeEditButtonStyle}
+                    >
+                        수정
+                    </button>
+                </div>
+                <div
+                    style={{
+                        ...shuttleItemStyle,
+                        opacity: isEnabled ? 1 : 0.6,
+                        transform: isSwipeOpened ? 'translateX(-74px)' : 'translateX(0)',
+                        transition: 'transform 0.2s ease'
+                    }}
+                >
+                    {user && (
+                        <div style={favoriteRailStyle}>
                         <button
                             type="button"
                             onClick={() => handleToggleFavorite(shuttle)}
@@ -292,52 +401,50 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                         >
                             {isFavorite ? '★' : '☆'}
                         </button>
-                    </div>
-                )}
-                <div style={shuttleContentStyle}>
-                    <div style={itemTopStyle}>
-                        <button
-                            type="button"
-                            onClick={() => {
-                                onSelectShuttleRoute(shuttle);
-                                setActivePanel('none');
-                                setSheetHeight(COLLAPSED_PEEK_HEIGHT);
-                            }}
-                            style={shuttleTitleButtonStyle}
-                        >
-                            {shuttle.name}
-                        </button>
-                        <span style={typeBadgeStyle(shuttle.type)}>
-                            {shuttle.type === 'work' ? '출근' : '퇴근'}
-                        </span>
-                        <button
-                            onClick={() => handleOpenEdit(shuttle)}
-                            style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '0.9rem' }}
-                        >✏️</button>
-                        <div style={rightAlignContainerStyle}>
-                            {isEnabled && (
-                                <span style={congestionBadgeStyle(shuttle.congestion)}>
-                                    좌석 {shuttle.congestion}
+                        </div>
+                    )}
+                    <div style={shuttleContentStyle}>
+                        <div style={itemTopStyle}>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    setOpenedSwipeKey(null);
+                                    onSelectShuttleRoute(shuttle);
+                                    setActivePanel('none');
+                                    setSheetHeight(COLLAPSED_PEEK_HEIGHT);
+                                }}
+                                style={shuttleTitleButtonStyle}
+                            >
+                                {shuttle.name}
+                            </button>
+                            <span style={typeBadgeStyle(shuttle.type)}>
+                                {shuttle.type === 'work' ? '출근' : '퇴근'}
+                            </span>
+                            <div style={rightAlignContainerStyle}>
+                                {isEnabled && (
+                                    <span style={congestionBadgeStyle(shuttle.congestion)}>
+                                        좌석 {shuttle.congestion}
+                                    </span>
+                                )}
+                                <span style={timeStyle}>
+                                    {isEnabled ? `${shuttle.type === 'work' ? '승차' : '하차'} ${getDisplayTime(shuttle)}` : '운행 중단'}
                                 </span>
-                            )}
-                            <span style={timeStyle}>
-                                {isEnabled ? `${shuttle.type === 'work' ? '승차' : '하차'} ${getDisplayTime(shuttle)}` : '운행 중단'}
+                            </div>
+                        </div>
+
+                        {!isEnabled && (
+                            <div style={suspendedBadgeStyle}>현재 정보에 의해 운행이 중단된 노선입니다.</div>
+                        )}
+
+                        <div style={infoRowStyle}>
+                            <span style={stationNameLabelStyle}>
+                                <span style={{ marginRight: '6px', fontSize: '0.9rem' }}>🏢</span>
+                                {shuttle.company}
+                            </span>
+                            <span style={timestampStyle}>
+                                마지막 업데이트: {getRelativeTime(shuttle.congestionUpdatedAt)}
                             </span>
                         </div>
-                    </div>
-
-                    {!isEnabled && (
-                        <div style={suspendedBadgeStyle}>현재 정보에 의해 운행이 중단된 노선입니다.</div>
-                    )}
-
-                    <div style={infoRowStyle}>
-                        <span style={stationNameLabelStyle}>
-                            <span style={{ marginRight: '6px', fontSize: '0.9rem' }}>🏢</span>
-                            {shuttle.company}
-                        </span>
-                        <span style={timestampStyle}>
-                            마지막 업데이트: {getRelativeTime(shuttle.congestionUpdatedAt)}
-                        </span>
                     </div>
                 </div>
             </div>
@@ -545,6 +652,31 @@ const congestionBadgeStyle = (status: string): React.CSSProperties => {
 };
 
 const itemTopStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' };
+const swipeWrapperStyle: React.CSSProperties = {
+    position: 'relative',
+    overflow: 'hidden',
+    borderRadius: '12px'
+};
+const swipeActionRailStyle: React.CSSProperties = {
+    position: 'absolute',
+    top: 0,
+    right: 0,
+    width: '74px',
+    height: '100%',
+    backgroundColor: '#EF4444',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center'
+};
+const swipeEditButtonStyle: React.CSSProperties = {
+    border: 'none',
+    background: 'transparent',
+    color: '#FFFFFF',
+    fontSize: '0.92rem',
+    fontWeight: 700,
+    cursor: 'pointer',
+    padding: 0
+};
 const favoriteRailStyle: React.CSSProperties = {
     width: '46px',
     minWidth: '46px',
