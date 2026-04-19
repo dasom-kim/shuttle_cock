@@ -45,6 +45,19 @@ interface FavoriteShuttlePayload {
     alightingTime?: string;
 }
 
+export interface FavoriteShuttleItem {
+    id: string;
+    stationId: string;
+    shuttleId: string;
+    name: string;
+    company: string;
+    type: 'work' | 'leave';
+    boardingTime?: string;
+    alightingTime?: string;
+    createdAt?: any;
+    stationName?: string;
+}
+
 interface ShuttleReviewPayload {
     content: string;
     userId: string;
@@ -454,6 +467,50 @@ export const fetchFavoriteShuttleKeys = async (uid: string) => {
     return keys;
 };
 
+export const fetchFavoriteShuttles = async (uid: string): Promise<FavoriteShuttleItem[]> => {
+    const favoritesRef = collection(db, 'users', uid, 'favoriteShuttles');
+    const favoritesQuery = query(favoritesRef, orderBy('createdAt', 'desc'));
+    const snapshot = await getDocs(favoritesQuery);
+
+    const items = snapshot.docs.map((favoriteDoc) => {
+        const data = favoriteDoc.data() as any;
+        return {
+            id: favoriteDoc.id,
+            stationId: data.stationId || '',
+            shuttleId: data.shuttleId || '',
+            name: data.name || '',
+            company: data.company || '',
+            type: data.type === 'leave' ? 'leave' : 'work',
+            boardingTime: data.boardingTime || '',
+            alightingTime: data.alightingTime || '',
+            createdAt: data.createdAt
+        } as FavoriteShuttleItem;
+    }).filter((item) => !!item.stationId && !!item.shuttleId);
+
+    const uniqueStationIds = Array.from(new Set(items.map((item) => item.stationId)));
+    const stationNameMap = new Map<string, string>();
+
+    await Promise.all(
+        uniqueStationIds.map(async (stationId) => {
+            try {
+                const stationRef = doc(db, 'stations', stationId);
+                const stationSnap = await getDoc(stationRef);
+                if (stationSnap.exists()) {
+                    const stationData = stationSnap.data() as any;
+                    stationNameMap.set(stationId, (stationData?.stationName || '').trim());
+                }
+            } catch (error) {
+                console.error('정류장 정보 조회 실패:', error);
+            }
+        })
+    );
+
+    return items.map((item) => ({
+        ...item,
+        stationName: stationNameMap.get(item.stationId) || '정류장 정보'
+    }));
+};
+
 export const toggleFavoriteShuttle = async (uid: string, shuttle: FavoriteShuttlePayload) => {
     if (!shuttle.stationId) {
         throw new Error('stationId가 없는 셔틀은 즐겨찾기할 수 없습니다.');
@@ -495,6 +552,21 @@ export const fetchShuttleReviews = async (stationId: string, shuttleId: string) 
         id: reviewDoc.id,
         ...reviewDoc.data()
     }));
+};
+
+export const fetchLatestShuttleReview = async (stationId: string, shuttleId: string) => {
+    const reviewsRef = collection(db, 'stations', stationId, 'shuttles', shuttleId, 'reviews');
+    const latestQuery = query(reviewsRef, orderBy('createdAt', 'desc'), limit(1));
+    const snapshot = await getDocs(latestQuery);
+    if (snapshot.empty) return null;
+    const docSnap = snapshot.docs[0];
+    const data = docSnap.data() as any;
+    return {
+        id: docSnap.id,
+        content: (data?.content || '').trim(),
+        userNickname: (data?.userNickname || '').trim() || '익명',
+        createdAt: data?.createdAt
+    };
 };
 
 export const addShuttleReview = async (stationId: string, shuttleId: string, payload: ShuttleReviewPayload) => {

@@ -5,6 +5,7 @@ import FloatingMenu from '../components/FloatingMenu';
 import LoginModal from '../components/LoginModal';
 import AddShuttleModal from '../components/AddShuttleModal'; // 모달 임포트
 import NicknameSetupModal from '../components/NicknameSetupModal';
+import FavoriteShuttlesModal from '../components/FavoriteShuttlesModal';
 import { getShuttlecockNickname, saveShuttleInfo, setShuttlecockNickname, fetchAllStations } from '../services/shuttleService';
 import StationDetailSheet from "../components/StationDetailSheet"; // 저장 서비스 임포트
 import { useFeedback } from '../components/feedback/FeedbackProvider';
@@ -55,6 +56,7 @@ const MapPage = () => {
     const { showToast } = useFeedback();
     const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
     const [isAddMode, setIsAddMode] = useState(false);
+    const [isFavOpen, setIsFavOpen] = useState(false);
     const [filter, setFilter] = useState({ go: true, leave: false });
     const [isAddModalOpen, setIsAddModalOpen] = useState(false);
     const [selectedCoord, setSelectedCoord] = useState<{ lat: number; lng: number } | null>(null);
@@ -576,9 +578,15 @@ const MapPage = () => {
                     setIsAddMode((prev) => !prev);
                 }}
                 isRankingOpen={false}
-                isFavOpen={false}
+                isFavOpen={isFavOpen}
                 onToggleRanking={() => {}}
-                onToggleFav={() => {}}
+                onToggleFav={() => {
+                    if (!user) {
+                        showToast("로그인 후 이용해 주세요.", 'info');
+                        return;
+                    }
+                    setIsFavOpen((prev) => !prev);
+                }}
             />
 
             <LoginModal isOpen={isLoginModalOpen} onClose={() => setIsLoginModalOpen(false)} />
@@ -622,6 +630,14 @@ const MapPage = () => {
                     setIsNicknameModalOpen(false);
                     showToast(`닉네임이 '${finalNickname}'(으)로 설정됐어요.`, 'success');
                 }}
+            />
+
+            <FavoriteShuttlesModal
+                isOpen={isFavOpen}
+                onClose={() => setIsFavOpen(false)}
+                user={user}
+                currentUserNickname={currentUserNickname}
+                onDataChanged={loadData}
             />
         </div>
     );

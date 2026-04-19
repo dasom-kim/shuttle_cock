@@ -14,6 +14,8 @@ interface ShuttleReviewsModalProps {
         type: 'work' | 'leave';
         boardingTime?: string;
         alightingTime?: string;
+        congestion?: string;
+        enable?: boolean;
         time?: string;
     } | null;
     user: any;
@@ -134,15 +136,24 @@ const ShuttleReviewsModal: React.FC<ShuttleReviewsModalProps> = ({
                 </div>
 
                 <div style={summaryCardStyle}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '6px' }}>
-                        <strong style={{ fontSize: '1rem', color: '#111827' }}>{shuttle.name}</strong>
+                    <div style={summaryTopRowStyle}>
+                        <strong style={shuttleTitleStyle}>{shuttle.name}</strong>
                         <span style={typeBadgeStyle(shuttle.type)}>{shuttle.type === 'work' ? '출근' : '퇴근'}</span>
+                        <span style={stationInlineStyle}>📍 {stationName}</span>
+                        <div style={rightAlignContainerStyle}>
+                            {!!shuttle.congestion && shuttle.enable !== false && (
+                                <span style={congestionBadgeStyle(shuttle.congestion)}>
+                                    좌석 {shuttle.congestion}
+                                </span>
+                            )}
+                            <span style={timeStyle}>
+                                {shuttle.enable !== false
+                                    ? `${shuttle.type === 'work' ? '승차' : '하차'} ${getDisplayTime() || '정보 없음'}`
+                                    : '운행 중단'}
+                            </span>
+                        </div>
                     </div>
-                    <div style={summarySubTextStyle}>📍 {stationName}</div>
                     <div style={summarySubTextStyle}>🏢 {shuttle.company}</div>
-                    <div style={summarySubTextStyle}>
-                        {shuttle.type === 'work' ? '승차' : '하차'} {getDisplayTime() || '정보 없음'}
-                    </div>
                 </div>
 
                 <div style={listAreaStyle}>
@@ -227,10 +238,63 @@ const summaryCardStyle: React.CSSProperties = {
     marginBottom: '12px'
 };
 
+const summaryTopRowStyle: React.CSSProperties = {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    marginBottom: '6px',
+    flexWrap: 'wrap'
+};
+
+const shuttleTitleStyle: React.CSSProperties = {
+    fontSize: 'clamp(14px, 3.5vw, 16px)',
+    color: '#111827'
+};
+
+const stationInlineStyle: React.CSSProperties = {
+    fontSize: 'clamp(12px, 3vw, 14px)',
+    color: '#4B5563'
+};
+
+const rightAlignContainerStyle: React.CSSProperties = {
+    marginLeft: 'auto',
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    flexWrap: 'wrap',
+    justifyContent: 'flex-end'
+};
+
+const timeStyle: React.CSSProperties = {
+    fontSize: 'clamp(12px, 3vw, 14px)',
+    color: '#1F2937',
+    fontWeight: 600
+};
+
 const summarySubTextStyle: React.CSSProperties = {
     fontSize: '0.85rem',
     color: '#4B5563',
     lineHeight: 1.5
+};
+
+const congestionBadgeStyle = (status: string): React.CSSProperties => {
+    let bgColor = '#E5E7EB';
+    let textColor = '#374151';
+
+    if (status === '여유') { bgColor = '#D1FAE5'; textColor = '#065F46'; }
+    else if (status === '보통') { bgColor = '#FEF3C7'; textColor = '#92400E'; }
+    else if (status === '부족') { bgColor = '#FEE2E2'; textColor = '#B91C1C'; }
+
+    return {
+        backgroundColor: bgColor,
+        color: textColor,
+        padding: '4px 8px',
+        borderRadius: '12px',
+        border: 'none',
+        fontSize: 'clamp(11px, 2.8vw, 13px)',
+        fontWeight: 'bold',
+        whiteSpace: 'nowrap'
+    };
 };
 
 const typeBadgeStyle = (type: 'work' | 'leave'): React.CSSProperties => ({
