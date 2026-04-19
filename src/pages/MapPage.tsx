@@ -152,6 +152,7 @@ const MapPage = () => {
         ignoreNextMapClickRef.current = false;
     }, [clearMapClickIgnoreTimer]);
 
+
     useEffect(() => {
         if (!user?.uid) {
             checkedNicknameUidRef.current = null;
@@ -287,26 +288,6 @@ const MapPage = () => {
             markersRef.current.push(marker);
         });
     }, [stations, filter, getOfficialStationName, selectedMarkerStationId, clearMapClickIgnoreTimer]); // stations나 filter가 바뀔 때마다 실행
-
-    // 일반 지도 영역 클릭 시(마커 제외) 상세 바텀시트 닫기
-    useEffect(() => {
-        if (!mapRef.current || isAddMode) return;
-
-        const listener = window.naver.maps.Event.addListener(mapRef.current, 'click', () => {
-            if (ignoreNextMapClickRef.current) {
-                clearMapClickIgnore();
-                return;
-            }
-            setIsDetailOpen(false);
-            setSelectedStation(null);
-            setSelectedMarkerStationId(null);
-            clearRouteOverlays();
-        });
-
-        return () => {
-            window.naver.maps.Event.removeListener(listener);
-        };
-    }, [isAddMode, clearMapClickIgnore, clearRouteOverlays]);
 
     useEffect(() => {
         return () => {

@@ -185,7 +185,7 @@ const ShuttleHistoryModal: React.FC<ShuttleHistoryModalProps> = ({
                                     </div>
                                     <div style={historyMetaRightStyle}>
                                         <span style={{ color: '#9CA3AF', fontSize: '0.78rem' }}>{getRelativeTime(history.createdAt)}</span>
-                                        {canShowReport && (
+                                        {canShowReport && !!user && (
                                             <button
                                                 type="button"
                                                 onClick={() => void handleReport(history)}

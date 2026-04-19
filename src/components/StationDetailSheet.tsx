@@ -81,6 +81,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
     const dragStartYRef = useRef(0);
     const dragStartHeightRef = useRef(0);
     const dragCurrentHeightRef = useRef(0);
+    const dragMovedRef = useRef(false);
     const swipeStateRef = useRef<{
         key: string | null;
         startX: number;
@@ -307,12 +308,22 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
 
         const handlePointerMove = (event: PointerEvent) => {
             const deltaY = dragStartYRef.current - event.clientY;
+            if (Math.abs(deltaY) > 4) {
+                dragMovedRef.current = true;
+            }
+            if (!dragMovedRef.current) {
+                return;
+            }
             const nextHeight = Math.min(maxHeight, Math.max(minHeight, dragStartHeightRef.current + deltaY));
             dragCurrentHeightRef.current = nextHeight;
             setSheetHeight(nextHeight);
         };
 
         const stopDragging = () => {
+            if (!dragMovedRef.current) {
+                setIsDraggingSheet(false);
+                return;
+            }
             if (dragCurrentHeightRef.current <= defaultHeight) {
                 setSheetHeight(COLLAPSED_PEEK_HEIGHT);
                 setActivePanel('none');
@@ -355,6 +366,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         dragStartYRef.current = event.clientY;
         dragStartHeightRef.current = sheetRef.current.getBoundingClientRect().height;
         dragCurrentHeightRef.current = dragStartHeightRef.current;
+        dragMovedRef.current = false;
         setIsDraggingSheet(true);
     };
 
@@ -451,6 +463,8 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
 
     const renderShuttleItem = (shuttle: Shuttle, keyPrefix: string) => {
         const isEnabled = shuttle.enable !== false;
+        const canEditAction = !!user;
+        const swipeActionWidth = 148;
         const favoriteKey = shuttle.stationId ? buildFavoriteShuttleKey(shuttle.stationId, shuttle.id) : '';
         const isFavorite = favoriteKey ? favoriteShuttleKeys.has(favoriteKey) : false;
         const isFavoritePending = favoriteKey ? favoritePendingKeys.has(favoriteKey) : false;
@@ -469,15 +483,17 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                 onPointerUp={endSwipe}
                 onPointerCancel={endSwipe}
             >
-                <div style={swipeActionRailStyle}>
+                <div style={swipeActionRailStyle(swipeActionWidth)}>
                     <button
                         type="button"
                         onClick={() => {
+                            if (!canEditAction) return;
                             handleOpenEdit(shuttle);
                         }}
-                        style={swipeEditButtonStyle}
+                        style={swipeEditButtonStyle(!canEditAction)}
+                        disabled={!canEditAction}
                     >
-                        수정
+                        {canEditAction ? '수정' : '🔒 수정'}
                     </button>
                     <button
                         type="button"
@@ -495,7 +511,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                         ...shuttleItemStyle,
                         backgroundColor: isEnabled ? '#F9FAFB' : '#F3F4F6',
                         borderColor: isEnabled ? '#F3F4F6' : '#E5E7EB',
-                        transform: isSwipeOpened ? 'translateX(-148px)' : 'translateX(0)',
+                        transform: isSwipeOpened ? `translateX(-${swipeActionWidth}px)` : 'translateX(0)',
                         transition: 'transform 0.2s ease'
                     }}
                 >
@@ -575,7 +591,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
     if (!isOpen) return null;
 
     return (
-        <div style={sheetOverlayStyle}>
+        <div style={sheetOverlayStyle} data-station-sheet="true">
             <div
                 ref={sheetRef}
                 onPointerDown={handleStartDragSheet}
@@ -805,28 +821,29 @@ const swipeWrapperStyle: React.CSSProperties = {
     overflow: 'hidden',
     borderRadius: '12px'
 };
-const swipeActionRailStyle: React.CSSProperties = {
+const swipeActionRailStyle = (width: number): React.CSSProperties => ({
     position: 'absolute',
     top: 0,
     right: 0,
-    width: '148px',
+    width: `${width}px`,
     height: '100%',
     backgroundColor: '#EF4444',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center'
-};
-const swipeEditButtonStyle: React.CSSProperties = {
+});
+const swipeEditButtonStyle = (disabled: boolean): React.CSSProperties => ({
     width: '74px',
     height: '100%',
     border: 'none',
-    background: '#EF4444',
+    background: disabled ? '#9CA3AF' : '#EF4444',
     color: '#FFFFFF',
     fontSize: '0.92rem',
     fontWeight: 700,
-    cursor: 'pointer',
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.9 : 1,
     padding: 0
-};
+});
 const swipeHistoryButtonStyle: React.CSSProperties = {
     width: '74px',
     height: '100%',

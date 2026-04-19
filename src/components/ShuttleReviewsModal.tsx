@@ -165,17 +165,18 @@ const ShuttleReviewsModal: React.FC<ShuttleReviewsModalProps> = ({
                     <textarea
                         value={reviewText}
                         onChange={(e) => setReviewText(e.target.value)}
-                        placeholder="셔틀 탑승 경험을 자유롭게 남겨 주세요."
+                        placeholder={user ? "셔틀 탑승 경험을 자유롭게 남겨 주세요." : "로그인 후 탑승 후기를 남길 수 있어요."}
+                        disabled={!user}
                         style={textareaStyle}
                         rows={3}
                     />
                     <button
                         type="button"
                         onClick={() => void handleSubmit()}
-                        disabled={isSubmitting}
-                        style={submitButtonStyle(isSubmitting)}
+                        disabled={isSubmitting || !user}
+                        style={submitButtonStyle(isSubmitting || !user)}
                     >
-                        {isSubmitting ? '등록 중...' : '후기 남기기'}
+                        {isSubmitting ? '등록 중...' : (user ? '후기 남기기' : '🔒 후기 남기기')}
                     </button>
                 </div>
             </div>
