@@ -15,6 +15,15 @@ interface AddShuttleModalProps {
     }>;
 }
 
+const MANUAL_STATION_OPTION_KEY = '__manual_station_name__';
+
+const isManualRequiredStationName = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return true;
+    if (trimmed === '정류장 정보') return true;
+    return /^\d+$/.test(trimmed);
+};
+
 const AddShuttleModal: React.FC<AddShuttleModalProps> = ({
     isOpen,
     onClose,
@@ -38,6 +47,7 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({
     const [isDestinationDropdownOpen, setIsDestinationDropdownOpen] = useState(false);
     const [isDestinationLoading, setIsDestinationLoading] = useState(false);
     const [selectedStationName, setSelectedStationName] = useState(stationName);
+    const [selectedStationOptionKey, setSelectedStationOptionKey] = useState('');
     const [isStationDropdownOpen, setIsStationDropdownOpen] = useState(false);
     const [isCongestionDropdownOpen, setIsCongestionDropdownOpen] = useState(false);
     const stationDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -58,13 +68,19 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({
         setSelectedDestination(null);
         setIsDestinationDropdownOpen(false);
         setIsDestinationLoading(false);
-        setSelectedStationName(stationName);
+        const initialName = stationName.trim();
+        const shouldUseManual = isManualRequiredStationName(initialName);
+        setSelectedStationName(shouldUseManual ? '' : initialName);
+        setSelectedStationOptionKey(shouldUseManual ? MANUAL_STATION_OPTION_KEY : initialName);
         setIsStationDropdownOpen(false);
         setIsCongestionDropdownOpen(false);
     }, [isOpen]);
 
     useEffect(() => {
-        setSelectedStationName(stationName);
+        const nextName = stationName.trim();
+        const shouldUseManual = isManualRequiredStationName(nextName);
+        setSelectedStationName(shouldUseManual ? '' : nextName);
+        setSelectedStationOptionKey(shouldUseManual ? MANUAL_STATION_OPTION_KEY : nextName);
     }, [stationName]);
 
     useEffect(() => {
@@ -94,6 +110,21 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({
 
     if (!isOpen) return null;
 
+    const stationOptionMap = new Map<string, { name: string; source: 'nearby' | 'api' | 'fallback' }>();
+    stationNameOptions.forEach((option) => {
+        const optionName = option.name.trim();
+        if (!optionName) return;
+        if (isManualRequiredStationName(optionName)) return;
+        if (!stationOptionMap.has(optionName)) {
+            stationOptionMap.set(optionName, { ...option, name: optionName });
+        }
+    });
+    if (stationName.trim() && !isManualRequiredStationName(stationName.trim()) && !stationOptionMap.has(stationName.trim())) {
+        stationOptionMap.set(stationName.trim(), { name: stationName.trim(), source: 'api' });
+    }
+    const normalizedStationOptions = Array.from(stationOptionMap.values());
+    const isManualSelected = selectedStationOptionKey === MANUAL_STATION_OPTION_KEY;
+
     const toMinutes = (value: string) => {
         const [hour, minute] = value.split(':').map(Number);
         if (!Number.isFinite(hour) || !Number.isFinite(minute)) return NaN;
@@ -101,6 +132,10 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({
     };
 
     const handleSave = () => {
+        if (!selectedStationName.trim()) {
+            showToast('정류장 이름을 입력해 주세요', 'info');
+            return;
+        }
         if (!shuttleName.trim()) {
             showToast('셔틀 이름을 입력해 주세요', 'info');
             return;
@@ -165,47 +200,62 @@ const AddShuttleModal: React.FC<AddShuttleModalProps> = ({
 
                 <div style={inputGroupStyle}>
                     <label>정류장 이름</label>
-                    {stationNameOptions.length > 1 ? (
-                        <div ref={stationDropdownRef} style={stationDropdownWrapStyle}>
-                            <button
-                                type="button"
-                                onClick={() => setIsStationDropdownOpen((prev) => !prev)}
-                                style={stationDropdownButtonStyle}
-                            >
-                                <span style={stationDropdownValueStyle}>{selectedStationName}</span>
-                                <span style={stationDropdownRightStyle}>
-                                    {stationNameOptions.some((opt) => opt.name === selectedStationName && opt.source === 'nearby') && (
-                                        <span style={recommendedBadgeStyle}>추천</span>
-                                    )}
-                                    <span style={stationDropdownArrowStyle(isStationDropdownOpen)}>▾</span>
-                                </span>
-                            </button>
+                    <div ref={stationDropdownRef} style={stationDropdownWrapStyle}>
+                        <button
+                            type="button"
+                            onClick={() => setIsStationDropdownOpen((prev) => !prev)}
+                            style={stationDropdownButtonStyle}
+                        >
+                            <span style={stationDropdownValueStyle}>
+                                {isManualSelected ? '직접 입력' : selectedStationName}
+                            </span>
+                            <span style={stationDropdownRightStyle}>
+                                {!isManualSelected && normalizedStationOptions.some((opt) => opt.name === selectedStationName && opt.source === 'nearby') && (
+                                    <span style={recommendedBadgeStyle}>추천</span>
+                                )}
+                                <span style={stationDropdownArrowStyle(isStationDropdownOpen)}>▾</span>
+                            </span>
+                        </button>
 
-                            {isStationDropdownOpen && (
-                                <div style={stationDropdownMenuStyle}>
-                                    {stationNameOptions.map((option) => (
-                                        <button
-                                            key={`${option.source}-${option.name}`}
-                                            type="button"
-                                            onClick={() => {
-                                                setSelectedStationName(option.name);
-                                                setIsStationDropdownOpen(false);
-                                            }}
-                                            style={stationDropdownOptionStyle(option.name === selectedStationName)}
-                                        >
-                                            <span style={stationDropdownOptionTextStyle}>{option.name}</span>
-                                            {option.source === 'nearby' && <span style={recommendedBadgeStyle}>추천</span>}
-                                        </button>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
-                    ) : (
+                        {isStationDropdownOpen && (
+                            <div style={stationDropdownMenuStyle}>
+                                {normalizedStationOptions.map((option) => (
+                                    <button
+                                        key={`${option.source}-${option.name}`}
+                                        type="button"
+                                        onClick={() => {
+                                            setSelectedStationOptionKey(option.name);
+                                            setSelectedStationName(option.name);
+                                            setIsStationDropdownOpen(false);
+                                        }}
+                                        style={stationDropdownOptionStyle(!isManualSelected && option.name === selectedStationName)}
+                                    >
+                                        <span style={stationDropdownOptionTextStyle}>{option.name}</span>
+                                        {option.source === 'nearby' && <span style={recommendedBadgeStyle}>추천</span>}
+                                    </button>
+                                ))}
+                                <button
+                                    type="button"
+                                    onClick={() => {
+                                        setSelectedStationOptionKey(MANUAL_STATION_OPTION_KEY);
+                                        setSelectedStationName('');
+                                        setIsStationDropdownOpen(false);
+                                    }}
+                                    style={stationDropdownOptionStyle(isManualSelected)}
+                                >
+                                    <span style={stationDropdownOptionTextStyle}>직접 입력</span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
+
+                    {isManualSelected && (
                         <input
                             type="text"
                             value={selectedStationName}
-                            disabled
-                            style={{ ...inputStyle, flex: 1, backgroundColor: '#F9FAFB', color: '#6B7280' }}
+                            onChange={(e) => setSelectedStationName(e.target.value)}
+                            placeholder="정류장 이름을 직접 입력해 주세요"
+                            style={{ ...inputStyle, marginTop: '8px' }}
                         />
                     )}
                 </div>

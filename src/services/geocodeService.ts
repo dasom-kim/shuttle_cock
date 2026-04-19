@@ -6,6 +6,15 @@ const normalizeText = (value: unknown) => {
     return value.trim();
 };
 
+const isZipcodeOnly = (value: string) => /^\d{5}$/.test(value.trim());
+
+const sanitizeRoadAddress = (value: unknown) => {
+    const normalized = normalizeText(value).replace(/\s*\([^)]*\)\s*$/g, '').trim();
+    if (!normalized) return '';
+    if (isZipcodeOnly(normalized)) return '';
+    return normalized;
+};
+
 const pushIfValid = (bucket: string[], value: unknown) => {
     const text = normalizeText(value);
     if (!text) return;
@@ -28,7 +37,7 @@ const collectBuildingCandidates = (value: any, bucket: string[] = []): string[] 
 
     Object.entries(value).forEach(([key, child]) => {
         const lowerKey = key.toLowerCase();
-        if (lowerKey.includes('building') || lowerKey.includes('addition')) {
+        if (lowerKey.includes('building') || lowerKey === 'addition0') {
             if (typeof child === 'string') {
                 pushIfValid(bucket, child);
             } else if (child && typeof child === 'object') {
@@ -48,7 +57,15 @@ const collectBuildingCandidates = (value: any, bucket: string[] = []): string[] 
 
 const pickBuildingName = (data: any) => {
     const candidates = collectBuildingCandidates(data);
-    return candidates.find((item) => item.length > 0) || '';
+    return (
+        candidates.find((item) => {
+            const normalized = item.trim();
+            if (!normalized) return false;
+            if (isZipcodeOnly(normalized)) return false;
+            if (/^\d+$/.test(normalized)) return false;
+            return true;
+        }) || ''
+    );
 };
 
 const buildRoadAddressFromResult = (result: any) => {
@@ -56,6 +73,7 @@ const buildRoadAddressFromResult = (result: any) => {
     const land = result?.land;
 
     const areaParts = [
+        region?.area1?.name,
         region?.area2?.name,
         region?.area3?.name,
         region?.area4?.name
@@ -77,8 +95,8 @@ const extractStationNameFromResponse = (data: any) => {
         pickBuildingName(addrResult) ||
         pickBuildingName(data);
     const roadAddress =
-        normalizeText(data?.v2?.address?.roadAddress)?.replace(/\s*\([^)]*\)\s*$/g, '').trim() ||
-        buildRoadAddressFromResult(roadResult) ||
+        sanitizeRoadAddress(data?.v2?.address?.roadAddress) ||
+        sanitizeRoadAddress(buildRoadAddressFromResult(roadResult)) ||
         '';
 
     return (
