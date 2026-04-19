@@ -305,6 +305,17 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         const minHeight = COLLAPSED_PEEK_HEIGHT;
         const maxHeight = window.innerHeight;
         const defaultHeight = getDefaultSheetHeight();
+        const getSnapLevel = (height: number) => {
+            const anchors = [
+                { level: 'collapsed' as const, value: COLLAPSED_PEEK_HEIGHT },
+                { level: 'default' as const, value: defaultHeight },
+                { level: 'full' as const, value: maxHeight }
+            ];
+
+            return anchors.reduce((closest, current) => {
+                return Math.abs(current.value - height) < Math.abs(closest.value - height) ? current : closest;
+            }).level;
+        };
 
         const handlePointerMove = (event: PointerEvent) => {
             const deltaY = dragStartYRef.current - event.clientY;
@@ -324,16 +335,36 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
                 setIsDraggingSheet(false);
                 return;
             }
-            if (dragCurrentHeightRef.current <= defaultHeight) {
-                setSheetHeight(COLLAPSED_PEEK_HEIGHT);
-                setActivePanel('none');
+
+            const startHeight = dragStartHeightRef.current;
+            const endHeight = dragCurrentHeightRef.current;
+            const delta = endHeight - startHeight;
+            const movementThreshold = 8;
+            const startLevel = getSnapLevel(startHeight);
+
+            if (Math.abs(delta) < movementThreshold) {
+                if (startLevel === 'full') setSheetHeight(maxHeight);
+                else if (startLevel === 'default') setSheetHeight(defaultHeight);
+                else setSheetHeight(COLLAPSED_PEEK_HEIGHT);
                 setIsDraggingSheet(false);
                 return;
             }
-            const threshold = window.innerHeight * 0.7;
-            if (dragCurrentHeightRef.current >= threshold) {
-                setSheetHeight(window.innerHeight);
+
+            if (delta > 0) {
+                if (startLevel === 'collapsed') {
+                    setSheetHeight(defaultHeight);
+                } else {
+                    setSheetHeight(maxHeight);
+                }
+            } else {
+                if (startLevel === 'full') {
+                    setSheetHeight(defaultHeight);
+                } else {
+                    setSheetHeight(COLLAPSED_PEEK_HEIGHT);
+                    setActivePanel('none');
+                }
             }
+
             setIsDraggingSheet(false);
         };
 
@@ -352,7 +383,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
         if (!sheetRef.current) return;
 
         const target = event.target as HTMLElement | null;
-        if (target?.closest('button, input, select, textarea, a, [data-no-sheet-drag="true"]')) {
+        if (target?.closest('button, input, select, textarea, a')) {
             return;
         }
 
@@ -597,7 +628,7 @@ const StationDetailSheet: React.FC<StationDetailSheetProps> = ({
             <div
                 ref={sheetRef}
                 onPointerDown={handleStartDragSheet}
-                style={sheetContentStyle(sheetHeight, isCollapsed)}
+                style={sheetContentStyle(sheetHeight, isCollapsed, isDraggingSheet)}
             >
                 <div
                     onPointerDown={handleStartDragSheet}
@@ -904,7 +935,7 @@ const infoRowStyle: React.CSSProperties = { display: 'flex', justifyContent: 'sp
 const stationNameLabelStyle: React.CSSProperties = { fontSize: 'clamp(12px, 3.1vw, 14px)', color: '#4B5563' };
 const timestampStyle: React.CSSProperties = { fontSize: 'clamp(11px, 2.7vw, 12.5px)', color: '#9CA3AF' };
 const sheetOverlayStyle: React.CSSProperties = { position: 'fixed', bottom: 0, left: 0, width: '100%', height: 'auto', zIndex: 3000 };
-const sheetContentStyle = (height: number | null, isCollapsed: boolean): React.CSSProperties => ({
+const sheetContentStyle = (height: number | null, isCollapsed: boolean, isDragging: boolean): React.CSSProperties => ({
     backgroundColor: 'white',
     borderRadius: '20px 20px 0 0',
     padding: isCollapsed ? '10px 14px 8px' : '15px 20px 30px',
@@ -912,7 +943,8 @@ const sheetContentStyle = (height: number | null, isCollapsed: boolean): React.C
     height: height ? `${height}px` : 'auto',
     maxHeight: '100vh',
     overflowY: isCollapsed ? 'hidden' : 'auto',
-    transition: height ? 'none' : 'height 0.2s ease'
+    touchAction: 'pan-y',
+    transition: isDragging ? 'none' : 'height 260ms cubic-bezier(0.22, 1, 0.36, 1)'
 });
 const handleStyle: React.CSSProperties = {
     width: '48px',
