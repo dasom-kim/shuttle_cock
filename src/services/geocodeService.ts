@@ -1,6 +1,56 @@
 const REVERSE_GEOCODE_ENDPOINT = '/api/naver-reverse';
 const GEOCODE_ENDPOINT = '/api/naver-geocode';
 
+const normalizeText = (value: unknown) => {
+    if (typeof value !== 'string') return '';
+    return value.trim();
+};
+
+const pushIfValid = (bucket: string[], value: unknown) => {
+    const text = normalizeText(value);
+    if (!text) return;
+    if (!bucket.includes(text)) {
+        bucket.push(text);
+    }
+};
+
+const collectBuildingCandidates = (value: any, bucket: string[] = []): string[] => {
+    if (!value || typeof value !== 'object') return bucket;
+
+    if (Array.isArray(value)) {
+        value.forEach((item) => collectBuildingCandidates(item, bucket));
+        return bucket;
+    }
+
+    pushIfValid(bucket, value?.land?.addition0?.value);
+    pushIfValid(bucket, value?.building);
+    pushIfValid(bucket, value?.buildingName);
+
+    Object.entries(value).forEach(([key, child]) => {
+        const lowerKey = key.toLowerCase();
+        if (lowerKey.includes('building') || lowerKey.includes('addition')) {
+            if (typeof child === 'string') {
+                pushIfValid(bucket, child);
+            } else if (child && typeof child === 'object') {
+                pushIfValid(bucket, (child as any).name);
+                pushIfValid(bucket, (child as any).value);
+                collectBuildingCandidates(child, bucket);
+            }
+            return;
+        }
+        if (child && typeof child === 'object') {
+            collectBuildingCandidates(child, bucket);
+        }
+    });
+
+    return bucket;
+};
+
+const pickBuildingName = (data: any) => {
+    const candidates = collectBuildingCandidates(data);
+    return candidates.find((item) => item.length > 0) || '';
+};
+
 const buildRoadAddressFromResult = (result: any) => {
     const region = result?.region;
     const land = result?.land;
@@ -19,16 +69,15 @@ const buildRoadAddressFromResult = (result: any) => {
     return [areaParts.join(' '), road, roadNumber].filter(Boolean).join(' ').trim();
 };
 
-const extractBuildingName = (result: any) => {
-    return result?.land?.addition0?.value?.trim?.() || '';
-};
-
 const extractStationNameFromResponse = (data: any) => {
     const roadResult = data?.results?.find((item: any) => item?.name === 'roadaddr');
     const addrResult = data?.results?.find((item: any) => item?.name === 'addr');
-    const buildingName = extractBuildingName(roadResult) || extractBuildingName(addrResult);
+    const buildingName =
+        pickBuildingName(roadResult) ||
+        pickBuildingName(addrResult) ||
+        pickBuildingName(data);
     const roadAddress =
-        data?.v2?.address?.roadAddress?.trim?.() ||
+        normalizeText(data?.v2?.address?.roadAddress)?.replace(/\s*\([^)]*\)\s*$/g, '').trim() ||
         buildRoadAddressFromResult(roadResult) ||
         '';
 
